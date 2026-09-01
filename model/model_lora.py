@@ -22,12 +22,14 @@ def apply_lora(model, rank=16):
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear) and module.in_features == module.out_features:
             lora = LoRA(module.in_features, module.out_features, rank=rank).to(model.device)
+            # 创建一个lora对象，并将其绑定到原始模块上
             setattr(module, "lora", lora)
             original_forward = module.forward
 
             # 显式绑定
             def forward_with_lora(x, layer1=original_forward, layer2=lora):
                 return layer1(x) + layer2(x)
+                # lora输出 + 原始输出
 
             module.forward = forward_with_lora
 

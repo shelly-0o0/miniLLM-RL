@@ -31,6 +31,8 @@
 
 </div>
 
+> 本工作区在官方工程之上增加了面向大模型基座岗位的可复现实验包，覆盖架构审计、Pretrain/SFT/LoRA/KD/DPO、Agentic RLVR、GRPO/CISPO/DAPO/GSPO、固定集评测与真实结果。总入口见 [大模型基座岗位复现包](./docs/foundation_model_interview/README.md)。
+
 * 此开源项目旨在完全从 0 开始，仅用 3 块钱成本与 2 小时训练时间，即可训练出规模约为 64M 的超小语言模型 MiniMind。
 * MiniMind 系列极其轻量，主线最小版本体积约为 GPT-3 的 $\frac{1}{2700}$，力求让普通个人 GPU 也能快速完成训练与复现。
 * 项目同时开源了大模型的极简结构与完整训练链路，覆盖 MoE、数据清洗、预训练（Pretrain）、监督微调（SFT）、LoRA、RLHF（DPO）、RLAIF（PPO / GRPO / CISPO）、Tool Use、Agentic RL、自适应思考与模型蒸馏等全过程代码。

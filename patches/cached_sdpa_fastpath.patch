@@ -1,0 +1,37 @@
+diff --git a/model/model_minimind.py b/model/model_minimind.py
+--- a/model/model_minimind.py
++++ b/model/model_minimind.py
+@@ -122,7 +122,22 @@ class Attention(nn.Module):
+             xv = torch.cat([past_key_value[1], xv], dim=1)
+         past_kv = (xk, xv) if use_cache else None
+         xq, xk, xv = (xq.transpose(1, 2), repeat_kv(xk, self.n_rep).transpose(1, 2), repeat_kv(xv, self.n_rep).transpose(1, 2))
+-        if self.flash and (seq_len > 1) and (not self.is_causal or past_key_value is None) and (attention_mask is None or torch.all(attention_mask == 1)):
++        # During cached autoregressive decoding the query length is one and
++        # the query represents the newest (right-most) token. It may attend to
++        # every cached key, so no causal triangle is needed. Sending this case
++        # through SDPA avoids the previous per-token explicit attention path.
++        cached_single_token = past_key_value is not None and seq_len == 1
++        if self.flash and cached_single_token:
++            sdpa_mask = None
++            if attention_mask is not None:
++                sdpa_mask = attention_mask[:, None, None, :].to(torch.bool)
++            output = F.scaled_dot_product_attention(
++                xq, xk, xv,
++                attn_mask=sdpa_mask,
++                dropout_p=self.dropout if self.training else 0.0,
++                is_causal=False,
++            )
++        elif self.flash and (seq_len > 1) and (not self.is_causal or past_key_value is None) and (attention_mask is None or torch.all(attention_mask == 1)):
+             output = F.scaled_dot_product_attention(xq, xk, xv, dropout_p=self.dropout if self.training else 0.0, is_causal=self.is_causal)
+         else:
+             scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(self.head_dim)
+@@ -257,6 +272,9 @@ class MiniMindForCausalLM(PreTrainedModel, GenerationMixin):
+     def generate(self, inputs=None, attention_mask=None, max_new_tokens=8192, temperature=0.85, top_p=0.85, top_k=50, eos_token_id=2, streamer=None, use_cache=True, num_return_sequences=1, do_sample=True, repetition_penalty=1.0, **kwargs):
+         input_ids = kwargs.pop("input_ids", inputs).repeat(num_return_sequences, 1)
+         attention_mask = attention_mask.repeat(num_return_sequences, 1) if attention_mask is not None else None
++        # Discard an all-valid mask once so cached SDPA can select its fastest kernel.
++        if attention_mask is not None and bool(torch.all(attention_mask == 1)):
++            attention_mask = None
+         past_key_values = kwargs.pop("past_key_values", None)
+         finished = torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)
+         if streamer: streamer.put(input_ids.cpu())

@@ -40,8 +40,14 @@ def train_epoch(epoch, loader, iters, lora_params, start_step=0, wandb=None):
 
         scaler.scale(loss).backward()
 
-        if step % args.accumulation_steps == 0:
+        if step % args.accumulation_steps == 0 or step == iters:
             scaler.unscale_(optimizer)
+            remainder = step % args.accumulation_steps
+            if step == iters and remainder:
+                correction = args.accumulation_steps / remainder
+                for parameter in lora_params:
+                    if parameter.grad is not None:
+                        parameter.grad.mul_(correction)
             torch.nn.utils.clip_grad_norm_(lora_params, args.grad_clip)
             scaler.step(optimizer)
             scaler.update()
@@ -68,13 +74,6 @@ def train_epoch(epoch, loader, iters, lora_params, start_step=0, wandb=None):
 
         del input_ids, labels, res, loss
 
-    if last_step > start_step and last_step % args.accumulation_steps != 0:
-        scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(lora_params, args.grad_clip)
-        scaler.step(optimizer)
-        scaler.update()
-        optimizer.zero_grad(set_to_none=True)
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MiniMind LoRA Fine-tuning")
     parser.add_argument("--save_dir", type=str, default="../out", help="模型保存目录")
@@ -100,6 +99,8 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_project", type=str, default="MiniMind-LoRA", help="wandb项目名")
     parser.add_argument("--use_compile", default=0, type=int, choices=[0, 1], help="是否使用torch.compile加速（0=否，1=是）")
     args = parser.parse_args()
+    if args.accumulation_steps < 1:
+        parser.error("accumulation_steps must be >= 1")
 
     # ========== 1. 初始化环境和随机种子 ==========
     local_rank = init_distributed_mode()

@@ -214,7 +214,7 @@ def main():
     parser.add_argument('--show_speed', default=0, type=int, help="显示decode速度（tokens/s）")
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu', type=str, help="运行设备")
     parser.add_argument('--api_base_url', default="http://localhost:11434/v1", type=str, help="OpenAI兼容接口的base_url")
-    parser.add_argument('--api_key', default='sk-123', type=str, help="OpenAI兼容接口的api_key")
+    parser.add_argument('--api_key', default=os.getenv('OPENAI_API_KEY', 'local'), type=str, help="OpenAI兼容接口的api_key")
     parser.add_argument('--api_model', default='jingyaogong/minimind-3:latest', type=str, help="API请求时使用的模型名称")
     parser.add_argument('--stream', default=1, type=int, help="API模式下是否流式输出（0=否，1=是）")
     args = parser.parse_args()

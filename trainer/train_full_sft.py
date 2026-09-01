@@ -39,8 +39,14 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
 
         scaler.scale(loss).backward()
 
-        if step % args.accumulation_steps == 0:
+        if step % args.accumulation_steps == 0 or step == iters:
             scaler.unscale_(optimizer)
+            remainder = step % args.accumulation_steps
+            if step == iters and remainder:
+                correction = args.accumulation_steps / remainder
+                for parameter in model.parameters():
+                    if parameter.grad is not None:
+                        parameter.grad.mul_(correction)
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
 
             scaler.step(optimizer)
@@ -65,21 +71,19 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
             raw_model = model.module if isinstance(model, DistributedDataParallel) else model
             raw_model = getattr(raw_model, '_orig_mod', raw_model)
             state_dict = raw_model.state_dict()
-            torch.save({k: v.half().cpu() for k, v in state_dict.items()}, ckp)
-            lm_checkpoint(lm_config, weight=args.save_weight, model=model, optimizer=optimizer, 
-                         epoch=epoch, step=step, wandb=wandb, save_dir='../checkpoints', scaler=scaler)
+            checkpoint_tmp = ckp + '.tmp'
+            torch.save({k: v.half().cpu() for k, v in state_dict.items()}, checkpoint_tmp)
+            os.replace(checkpoint_tmp, ckp)
+            if args.save_resume:
+                lm_checkpoint(
+                    lm_config, weight=args.save_weight, model=model,
+                    optimizer=optimizer, epoch=epoch, step=step, wandb=wandb,
+                    save_dir='../checkpoints', scaler=scaler,
+                )
             model.train()
             del state_dict
 
         del input_ids, labels, res, loss
-
-    if last_step > start_step and last_step % args.accumulation_steps != 0:
-        scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-        scaler.step(optimizer)
-        scaler.update()
-        optimizer.zero_grad(set_to_none=True)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MiniMind Full SFT")
@@ -95,6 +99,10 @@ if __name__ == "__main__":
     parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
     parser.add_argument("--log_interval", type=int, default=100, help="日志打印间隔")
     parser.add_argument("--save_interval", type=int, default=1000, help="模型保存间隔")
+    parser.add_argument(
+        "--save_resume", default=1, type=int, choices=[0, 1],
+        help="是否保存包含Adam状态的断点；短程课程SFT可关闭以节省磁盘",
+    )
     parser.add_argument('--hidden_size', default=768, type=int, help="隐藏层维度")
     parser.add_argument('--num_hidden_layers', default=8, type=int, help="隐藏层数量")
     parser.add_argument('--max_seq_len', default=768, type=int, help="训练的最大截断长度（中文1token≈1.5~1.7字符）")
@@ -106,6 +114,8 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_project", type=str, default="MiniMind-Full-SFT", help="wandb项目名")
     parser.add_argument("--use_compile", default=0, type=int, choices=[0, 1], help="是否使用torch.compile加速（0=否，1=是）")
     args = parser.parse_args()
+    if args.accumulation_steps < 1:
+        parser.error("accumulation_steps must be >= 1")
 
     # ========== 1. 初始化环境和随机种子 ==========
     local_rank = init_distributed_mode()

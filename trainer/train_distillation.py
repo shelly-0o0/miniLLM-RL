@@ -23,15 +23,19 @@ warnings.filterwarnings('ignore')
 
 
 def distillation_loss(student_logits, teacher_logits, temperature=1.0, reduction='batchmean'):
+    # Compute KL in FP32 even when the forward pass uses BF16/FP16.  The
+    # log-target form avoids materialising probabilities close to zero and is
+    # numerically more stable for a large vocabulary.
     with torch.no_grad():
-        teacher_probs = F.softmax(teacher_logits / temperature, dim=-1).detach()
-
-    student_log_probs = F.log_softmax(student_logits / temperature, dim=-1)
-
+        teacher_log_probs = F.log_softmax(
+            teacher_logits.float() / temperature, dim=-1
+        ).detach()
+    student_log_probs = F.log_softmax(student_logits.float() / temperature, dim=-1)
     kl = F.kl_div(
         student_log_probs,
-        teacher_probs,
-        reduction=reduction
+        teacher_log_probs,
+        reduction=reduction,
+        log_target=True,
     )
     return (temperature ** 2) * kl
 
@@ -60,7 +64,7 @@ def train_epoch(epoch, loader, iters, teacher_model, lm_config_student, start_st
 
         # 教师模型前向传播（只在eval & no_grad）
         if teacher_model is not None:
-            with torch.no_grad():
+            with torch.no_grad(), autocast_ctx:
                 teacher_logits = teacher_model(input_ids).logits[..., :-1, :].contiguous()
                 vocab_size_student = student_logits.size(-1)
                 teacher_logits = teacher_logits[..., :vocab_size_student]
@@ -100,6 +104,21 @@ def train_epoch(epoch, loader, iters, teacher_model, lm_config_student, start_st
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
+        elif step == iters:
+            # Do not save a checkpoint before applying the final incomplete
+            # accumulation window.  Because every micro-loss was divided by
+            # ``accumulation_steps``, rescale the remainder to preserve a true
+            # mean over the smaller final effective batch.
+            scaler.unscale_(optimizer)
+            remainder = step % args.accumulation_steps
+            correction = args.accumulation_steps / remainder
+            for parameter in model.parameters():
+                if parameter.grad is not None:
+                    parameter.grad.mul_(correction)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
 
         if step % args.log_interval == 0 or step == iters:
             spend_time = time.time() - start_time
@@ -135,14 +154,6 @@ def train_epoch(epoch, loader, iters, teacher_model, lm_config_student, start_st
 
         del input_ids, labels, loss_mask, res, student_logits, ce_loss, distill_loss, loss
 
-    if last_step > start_step and last_step % args.accumulation_steps != 0:
-        scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-        scaler.step(optimizer)
-        scaler.update()
-        optimizer.zero_grad(set_to_none=True)
-
-
 if __name__ == "__main__":
     # 模拟用moe模型蒸馏dense模型，也可以用更大teacher_hidden_size模型蒸馏更小student_hidden_size的
     parser = argparse.ArgumentParser(description="MiniMind Knowledge Distillation")
@@ -171,15 +182,25 @@ if __name__ == "__main__":
     parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
     parser.add_argument('--alpha', default=0.5, type=float, help="CE损失权重，总损失=alpha*CE+(1-alpha)*KL")
     parser.add_argument('--temperature', default=1.5, type=float, help="蒸馏温度（推荐范围1.0-2.0）")
+    parser.add_argument('--disable_teacher', default=0, type=int, choices=[0, 1], help="CE-only公平基线；启用时alpha必须为1")
+    parser.add_argument('--seed', default=42, type=int, help="训练随机种子")
     parser.add_argument("--use_wandb", action="store_true", help="是否使用wandb")
     parser.add_argument("--wandb_project", type=str, default="MiniMind-Distillation", help="wandb项目名")
     parser.add_argument("--use_compile", default=0, type=int, choices=[0, 1], help="是否使用torch.compile加速（0=否，1=是）")
     args = parser.parse_args()
+    if not 0.0 <= args.alpha <= 1.0:
+        parser.error("alpha must be in [0, 1]")
+    if args.temperature <= 0:
+        parser.error("temperature must be > 0")
+    if args.accumulation_steps < 1:
+        parser.error("accumulation_steps must be >= 1")
 
     # ========== 1. 初始化环境和随机种子 ==========
     local_rank = init_distributed_mode()
     if dist.is_initialized(): args.device = f"cuda:{local_rank}"
-    setup_seed(42 + (dist.get_rank() if dist.is_initialized() else 0))
+    if args.disable_teacher and args.alpha != 1.0:
+        raise ValueError('--disable_teacher=1 requires --alpha=1.0')
+    setup_seed(args.seed + (dist.get_rank() if dist.is_initialized() else 0))
     
     # ========== 2. 配置目录、模型参数、检查ckp ==========
     os.makedirs(args.save_dir, exist_ok=True)
@@ -204,10 +225,14 @@ if __name__ == "__main__":
     # ========== 5. 定义学生和教师模型 ==========
     model, tokenizer = init_model(lm_config_student, args.from_student_weight, device=args.device)
     Logger(f'学生模型总参数量：{sum(p.numel() for p in model.parameters()) / 1e6:.3f} M')
-    teacher_model, _ = init_model(lm_config_teacher, args.from_teacher_weight, device=args.device)
-    teacher_model.eval()
-    teacher_model.requires_grad_(False)
-    Logger(f'教师模型总参数量：{sum(p.numel() for p in teacher_model.parameters()) / 1e6:.3f} M')
+    teacher_model = None
+    if not args.disable_teacher:
+        teacher_model, _ = init_model(lm_config_teacher, args.from_teacher_weight, device=args.device)
+        teacher_model.eval()
+        teacher_model.requires_grad_(False)
+        Logger(f'教师模型总参数量：{sum(p.numel() for p in teacher_model.parameters()) / 1e6:.3f} M')
+    else:
+        Logger('CE-only baseline: teacher forward disabled')
     train_ds = SFTDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
@@ -232,7 +257,7 @@ if __name__ == "__main__":
     # ========== 8. 开始训练 ==========
     for epoch in range(start_epoch, args.epochs):
         train_sampler and train_sampler.set_epoch(epoch)
-        setup_seed(42 + epoch); indices = torch.randperm(len(train_ds)).tolist()
+        setup_seed(args.seed + epoch); indices = torch.randperm(len(train_ds)).tolist()
         skip = start_step if (epoch == start_epoch and start_step > 0) else 0
         batch_sampler = SkipBatchSampler(train_sampler or indices, args.batch_size, skip)
         loader = DataLoader(train_ds, batch_sampler=batch_sampler, num_workers=args.num_workers, pin_memory=True)

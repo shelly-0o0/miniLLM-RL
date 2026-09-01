@@ -1,0 +1,2 @@
+{"conversations":[{"role":"user","content":"什么是机器学习？","reasoning_content":"","tools":"","tool_calls":""},{"role":"assistant","content":"机器学习是让计算机从数据中学习规律的方法。","reasoning_content":"","tools":"","tool_calls":""}]}
+{"conversations":[{"role":"user","content":"请用一句话介绍 MiniMind。","reasoning_content":"","tools":"","tool_calls":""},{"role":"assistant","content":"MiniMind 是一个适合学习大语言模型完整流程的小型开源项目。","reasoning_content":"","tools":"","tool_calls":""}]}

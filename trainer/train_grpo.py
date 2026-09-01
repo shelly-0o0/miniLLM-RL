@@ -24,6 +24,12 @@ from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from dataset.lm_dataset import RLAIFDataset
 from trainer.trainer_utils import Logger, is_main_process, lm_checkpoint, init_distributed_mode, setup_seed, SkipBatchSampler, init_model, LMForRewardModel
 from trainer.rollout_engine import create_rollout_engine
+from trainer.policy_optimization import (
+    compute_policy_loss,
+    distributed_token_mean_scale,
+    group_relative_advantages,
+)
+from trainer.experiment_logging import JsonlMetricLogger
 
 warnings.filterwarnings('ignore')
 
@@ -69,6 +75,7 @@ def calculate_rewards(prompts, responses, reward_model):
 
 
 def grpo_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_model, start_step=0, wandb=None, use_sglang=False):
+    last_micro_step = 0
     for step, batch in enumerate(loader, start=start_step + 1):
         prompts = batch['prompt']  # list[str], length B
         prompt_inputs = tokenizer(prompts, return_tensors="pt", padding=True, return_token_type_ids=False,
@@ -94,14 +101,13 @@ def grpo_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_mod
 
         rewards = calculate_rewards(prompts, completions, reward_model).to(args.device)  # [B*num_gen]
 
-        model_unwrapped = model.module if isinstance(model, DistributedDataParallel) else model
-        with autocast_ctx:
-            res = model_unwrapped(outputs, attention_mask=full_mask)
-            aux_loss = res.aux_loss if lm_config.use_moe else torch.tensor(0.0, device=args.device)
-            per_token_logps = F.log_softmax(res.logits[:, :-1, :], dim=-1).gather(2, outputs[:, 1:].unsqueeze(-1)).squeeze(-1).gather(1, logp_pos)
-
-        with torch.no_grad():
-            ref_per_token_logps = F.log_softmax(ref_model(outputs, attention_mask=full_mask).logits[:, :-1, :], dim=-1).gather(2, outputs[:, 1:].unsqueeze(-1)).squeeze(-1).gather(1, logp_pos)
+        # Match the policy/rollout autocast precision; otherwise numerical
+        # differences on low-probability tokens masquerade as policy KL.
+        with torch.no_grad(), autocast_ctx:
+            ref_logits = ref_model(outputs, attention_mask=full_mask).logits[:, :-1, :]
+            ref_per_token_logps = F.log_softmax(ref_logits.float(), dim=-1).gather(
+                2, outputs[:, 1:].unsqueeze(-1)
+            ).squeeze(-1).gather(1, logp_pos)
 
         if args.debug_mode and is_main_process() and step % args.debug_interval == 0:
             for i in range(len(prompts)):
@@ -119,9 +125,7 @@ def grpo_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_mod
                 Logger('='*100)
 
         grouped_rewards = rewards.view(-1, args.num_generations)  # [B, num_gen]
-        mean_r = grouped_rewards.mean(dim=1).repeat_interleave(args.num_generations)  # [B*num_gen]
-        std_r = grouped_rewards.std(dim=1, unbiased=False).repeat_interleave(args.num_generations)  # [B*num_gen]
-        advantages = (rewards - mean_r) / (std_r + 1e-4)  # [B*num_gen]
+        advantages = group_relative_advantages(rewards, args.num_generations)
 
         completion_pad_mask = rollout_result.completion_mask.to(args.device).bool()
         is_eos = (completion_ids == tokenizer.eos_token_id) & completion_pad_mask  # [B*num_gen, R]
@@ -129,53 +133,101 @@ def grpo_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_mod
         eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
         completion_mask = ((torch.arange(is_eos.size(1), device=args.device).expand(is_eos.size(0), -1) <= eos_idx.unsqueeze(1)) & completion_pad_mask).int()  # [B*num_gen, R]
 
-        kl_div = ref_per_token_logps - per_token_logps
-        per_token_kl = torch.exp(kl_div) - kl_div - 1  # [B*num_gen, R]
-        ratio = torch.exp(per_token_logps - old_per_token_logps)  # [B*num_gen, R]
-        if args.loss_type == "cispo":
-            clamped_ratio = torch.clamp(ratio, max=args.epsilon_high).detach()
-            per_token_loss = -(clamped_ratio * advantages.unsqueeze(1) * per_token_logps - args.beta * per_token_kl)
-        else:
-            clipped_ratio = torch.clamp(ratio, 1 - args.epsilon, 1 + args.epsilon)
-            per_token_loss1 = ratio * advantages.unsqueeze(1)
-            per_token_loss2 = clipped_ratio * advantages.unsqueeze(1)
-            per_token_loss = -(torch.min(per_token_loss1, per_token_loss2) - args.beta * per_token_kl)
-        policy_loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1).clamp(min=1)).mean()
-        loss = (policy_loss + aux_loss) / args.accumulation_steps  # scalar
-        loss.backward()
+        # Reuse the fixed rollout and old log-probabilities for several policy
+        # updates.  With one update the first ratio is ~1 for the torch engine,
+        # which makes clipping ablations largely uninformative.
+        policy_output = None
+        aux_loss = torch.tensor(0.0, device=args.device)
+        per_token_logps = None
+        rollout_logprob_mae = None
+        rollout_ratio_mean = None
+        for policy_epoch in range(args.policy_update_epochs):
+            with autocast_ctx:
+                res = model(outputs, attention_mask=full_mask)
+                aux_loss = res.aux_loss if lm_config.use_moe else torch.tensor(0.0, device=args.device)
+                per_token_logps = F.log_softmax(res.logits[:, :-1, :].float(), dim=-1).gather(
+                    2, outputs[:, 1:].unsqueeze(-1)
+                ).squeeze(-1).gather(1, logp_pos)
+                if policy_epoch == 0:
+                    valid_tokens = completion_mask.sum().clamp(min=1)
+                    initial_log_ratio = per_token_logps.float() - old_per_token_logps
+                    rollout_logprob_mae = (
+                        initial_log_ratio.abs() * completion_mask
+                    ).sum() / valid_tokens
+                    rollout_ratio_mean = (
+                        initial_log_ratio.exp() * completion_mask
+                    ).sum() / valid_tokens
+                policy_output = compute_policy_loss(
+                    loss_type=args.loss_type,
+                    current_logps=per_token_logps,
+                    old_logps=old_per_token_logps,
+                    reference_logps=ref_per_token_logps,
+                    advantages=advantages,
+                    completion_mask=completion_mask,
+                    beta=args.beta,
+                    grpo_epsilon=args.epsilon,
+                    cispo_epsilon_high=args.epsilon_high,
+                    dapo_epsilon_low=args.dapo_epsilon_low,
+                    dapo_epsilon_high=args.dapo_epsilon_high,
+                    gspo_epsilon_low=args.gspo_epsilon_low,
+                    gspo_epsilon_high=args.gspo_epsilon_high,
+                )
+                token_mean_scale = (
+                    distributed_token_mean_scale(completion_mask)
+                    if args.loss_type in {"cispo", "dapo"} else 1.0
+                )
+                loss = (policy_output.loss * token_mean_scale + aux_loss) / args.accumulation_steps
+            loss.backward()
 
-        if step % args.accumulation_steps == 0:
-            if args.grad_clip > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
+            last_micro_step = ((epoch * iters + step - 1) * args.policy_update_epochs
+                               + policy_epoch + 1)
+            if last_micro_step % args.accumulation_steps == 0:
+                if args.grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
 
         if step % args.log_interval == 0 or step == iters:
-            policy_loss_val = loss.item() * args.accumulation_steps
+            policy_loss_val = policy_output.policy_loss.item()
             current_aux_loss = aux_loss.item()
             avg_reward_val = rewards.mean().item()
             avg_len_val = completion_mask.sum(dim=1).float().mean().item()
-            kl_ref_val = ((ref_per_token_logps - per_token_logps) * completion_mask).sum().item() / max(completion_mask.sum().item(), 1)
+            kl_ref_val = policy_output.approx_kl.item()
             advantages_mean_val = advantages.mean().item()
             advantages_std_val = advantages.std().item()
             current_lr = optimizer.param_groups[0]['lr']
+            clip_fraction = policy_output.clip_fraction.item()
+            ratio_mean = policy_output.ratio_mean.item()
+            ratio_std = policy_output.ratio_std.item()
 
             Logger(f'Epoch:[{epoch + 1}/{args.epochs}]({step}/{iters}), '
-                   f'Reward: {avg_reward_val:.4f}, KL_ref: {kl_ref_val:.4f}, '
+                   f'Algorithm:{args.loss_type.upper()}, Reward:{avg_reward_val:.4f}, KL_k3:{kl_ref_val:.6f}, '
                    f'Adv Std: {advantages_std_val:.4f}, Adv Mean: {advantages_mean_val:.4f}, '
-                   f'Actor Loss: {policy_loss_val:.4f}, Avg Response Len: {avg_len_val:.2f}, Learning Rate: {current_lr:.8f}')
+                   f'Actor Loss:{policy_loss_val:.4f}, ClipFrac:{clip_fraction:.4f}, '
+                   f'Ratio:{ratio_mean:.4f}±{ratio_std:.4f}, Avg Response Len:{avg_len_val:.2f}, LR:{current_lr:.8f}')
+
+            metrics = {
+                "reward": avg_reward_val,
+                "kl_k3": kl_ref_val,
+                "group_reward_std": grouped_rewards.std(dim=1, unbiased=False).mean().item(),
+                "advantages_std": advantages_std_val,
+                "advantages_mean": advantages_mean_val,
+                "policy_loss": policy_loss_val,
+                "aux_loss": current_aux_loss,
+                "clip_fraction": clip_fraction,
+                "ratio_mean": ratio_mean,
+                "ratio_std": ratio_std,
+                "rollout_logprob_mae": rollout_logprob_mae.item(),
+                "rollout_ratio_mean": rollout_ratio_mean.item(),
+                "avg_response_len": avg_len_val,
+                "learning_rate": current_lr,
+            }
+            if is_main_process():
+                metric_logger.log(metrics, step=epoch * iters + step)
 
             if wandb and is_main_process():
-                wandb.log({
-                    "reward": avg_reward_val,
-                    "kl_ref": kl_ref_val,
-                    "advantages_std": advantages_std_val,
-                    "advantages_mean": advantages_mean_val,
-                    "policy_loss": policy_loss_val,
-                    "avg_response_len": avg_len_val,
-                    "learning_rate": current_lr
-                })
+                wandb.log(metrics)
 
         if (step % args.save_interval == 0 or step == iters) and is_main_process():
             model.eval()
@@ -190,12 +242,15 @@ def grpo_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_mod
             model.train()
             del state_dict
 
-        if step % args.save_interval == 0 or step == iters: rollout_engine.update_policy(model)
+        # A stale remote rollout policy invalidates controlled on-policy
+        # comparisons.  The torch engine only updates a pointer and is cheap.
+        if step % args.rollout_sync_interval == 0 or step == iters:
+            rollout_engine.update_policy(model)
 
         del prompt_inputs, outputs, completion_ids, per_token_logps, ref_per_token_logps
-        del completions, rewards, grouped_rewards, mean_r, std_r, advantages, completion_mask, completion_pad_mask, prompt_lens, logp_pos
+        del completions, rewards, grouped_rewards, advantages, completion_mask, completion_pad_mask, prompt_lens, logp_pos
 
-    if step > start_step and step % args.accumulation_steps != 0:
+    if last_micro_step and last_micro_step % args.accumulation_steps != 0:
         if args.grad_clip > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         optimizer.step()
@@ -210,8 +265,9 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=1, help="训练轮数")
     parser.add_argument("--batch_size", type=int, default=2, help="batch size")
     parser.add_argument("--learning_rate", type=float, default=3e-7, help="初始学习率")
+    parser.add_argument("--weight_decay", type=float, default=0.0, help="RL AdamW权重衰减；默认0避免零advantage时策略漂移")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
-    parser.add_argument("--dtype", type=str, default="bfloat16", help="混合精度类型")
+    parser.add_argument("--dtype", type=str, default="bfloat16", choices=["bfloat16", "float16"], help="混合精度类型")
     parser.add_argument("--num_workers", type=int, default=8, help="数据加载线程数")
     parser.add_argument("--accumulation_steps", type=int, default=1, help="梯度累积步数")
     parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
@@ -225,9 +281,17 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", type=str, default="../dataset/rlaif.jsonl", help="RLAIF数据路径")
     parser.add_argument("--num_generations", type=int, default=6, help="每个prompt生成的样本数")
     parser.add_argument("--beta", type=float, default=0.1, help="KL惩罚系数")
-    parser.add_argument("--loss_type", type=str, default="cispo", choices=["grpo", "cispo"], help="loss类型")
+    parser.add_argument("--loss_type", type=str, default="cispo", choices=["grpo", "cispo", "dapo", "gspo"], help="策略优化目标")
     parser.add_argument("--epsilon", type=float, default=0.2, help="GRPO的PPO clip epsilon")
-    parser.add_argument("--epsilon_high", type=float, default=5.0, help="epsilon上界")
+    parser.add_argument("--epsilon_high", type=float, default=5.0, help="CISPO epsilon_high_IS；实际ratio上界为1+该值")
+    parser.add_argument("--dapo_epsilon_low", type=float, default=0.2, help="DAPO非对称下裁剪")
+    parser.add_argument("--dapo_epsilon_high", type=float, default=0.28, help="DAPO Clip-Higher上裁剪")
+    parser.add_argument("--gspo_epsilon_low", type=float, default=3e-4, help="GSPO序列比率下裁剪")
+    parser.add_argument("--gspo_epsilon_high", type=float, default=4e-4, help="GSPO序列比率上裁剪")
+    parser.add_argument("--policy_update_epochs", type=int, default=1, help="每批rollout复用的策略更新轮数；算法对比建议2~4")
+    parser.add_argument("--rollout_sync_interval", type=int, default=1, help="多少个训练batch同步一次rollout策略")
+    parser.add_argument("--metrics_path", type=str, default="../out/metrics/grpo_family.jsonl", help="本地可审计JSONL指标")
+    parser.add_argument("--seed", type=int, default=42, help="随机种子")
     parser.add_argument('--from_weight', default='full_sft', type=str, help="基于哪个权重训练")
     parser.add_argument("--reward_model_path", type=str, default="../../internlm2-1_8b-reward", help="Reward模型路径")
     parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
@@ -242,14 +306,38 @@ if __name__ == "__main__":
     parser.add_argument("--sglang_model_path", type=str, default="../model", help="SGLang tokenizer路径")
     parser.add_argument("--sglang_shared_path", type=str, default="./sglang_ckpt_grpo", help="SGLang共享存储路径")
     args = parser.parse_args()
+    if args.policy_update_epochs < 1 or args.rollout_sync_interval < 1:
+        parser.error("policy_update_epochs and rollout_sync_interval must be >= 1")
+    if args.num_generations < 2 or args.batch_size < 1:
+        parser.error("num_generations must be >= 2 and batch_size must be >= 1")
+    if args.epsilon_high < 0:
+        parser.error("epsilon_high must be >= 0")
+    if args.weight_decay < 0:
+        parser.error("weight_decay must be >= 0")
 
     # ========== 1. 初始化环境和随机种子 ==========
     local_rank = init_distributed_mode()
     if dist.is_initialized(): args.device = f"cuda:{local_rank}"
-    setup_seed(42 + (dist.get_rank() if dist.is_initialized() else 0))
+    process_rank = dist.get_rank() if dist.is_initialized() else 0
+    setup_seed(args.seed + process_rank)
     
     # ========== 2. 配置目录、模型参数、检查ckp ==========
     os.makedirs(args.save_dir, exist_ok=True)
+    metric_logger = JsonlMetricLogger(
+        args.metrics_path if is_main_process() else None,
+        run_config={
+            "algorithm": args.loss_type,
+            "data_path": args.data_path,
+            "seed": args.seed,
+            "num_generations": args.num_generations,
+            "policy_update_epochs": args.policy_update_epochs,
+            "beta": args.beta,
+            "weight_decay": args.weight_decay,
+            "hidden_size": args.hidden_size,
+            "num_hidden_layers": args.num_hidden_layers,
+            "use_moe": bool(args.use_moe),
+        },
+    )
     lm_config = MiniMindConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,
                                max_seq_len=args.max_seq_len + args.max_gen_len, use_moe=bool(args.use_moe))
     ckp_data = lm_checkpoint(lm_config, weight=args.save_weight, save_dir='../checkpoints') if args.from_resume==1 else None
@@ -291,10 +379,11 @@ if __name__ == "__main__":
     # 数据和优化器
     train_ds = RLAIFDataset(args.data_path, tokenizer, max_length=lm_config.max_seq_len, thinking_ratio=args.thinking_ratio)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
-    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     loader_for_count = DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sampler)
     iters = len(loader_for_count)
-    total_optimizer_steps = math.ceil(iters / args.accumulation_steps) * args.epochs
+    total_micro_steps = iters * args.policy_update_epochs * args.epochs
+    total_optimizer_steps = math.ceil(total_micro_steps / args.accumulation_steps)
     scheduler = CosineAnnealingLR(optimizer, T_max=total_optimizer_steps, eta_min=args.learning_rate / 10)
     
     # ========== 6. 从ckp恢复状态 ==========
@@ -318,7 +407,8 @@ if __name__ == "__main__":
     # ========== 8. 开始训练 ==========
     for epoch in range(start_epoch, args.epochs):
         train_sampler and train_sampler.set_epoch(epoch)
-        setup_seed(42 + epoch); indices = torch.randperm(len(train_ds)).tolist()
+        setup_seed(args.seed + epoch * max(dist.get_world_size() if dist.is_initialized() else 1, 1) + process_rank)
+        indices = torch.randperm(len(train_ds)).tolist()
         skip = start_step if (epoch == start_epoch and start_step > 0) else 0
         batch_sampler = SkipBatchSampler(train_sampler or indices, args.batch_size, skip)
         loader = DataLoader(train_ds, batch_sampler=batch_sampler, num_workers=args.num_workers, pin_memory=True)

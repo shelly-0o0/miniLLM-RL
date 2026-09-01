@@ -71,21 +71,37 @@ class TorchRolloutEngine(RolloutEngine):
     def rollout(self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int, max_new_tokens: int, temperature: float = 0.8) -> RolloutResult:
         model = self.policy_model.module if isinstance(self.policy_model, DistributedDataParallel) else self.policy_model
         ctx = self.autocast_ctx if self.autocast_ctx else nullcontext()
-        with torch.no_grad(), ctx:
-            output_ids = model.generate(
-                input_ids=prompt_ids.repeat_interleave(num_generations, dim=0),
-                attention_mask=attention_mask.repeat_interleave(num_generations, dim=0),
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=temperature,
-                num_return_sequences=1,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            ).clone()  # [B*num_gen, P+R]
-            prompt_len = prompt_ids.size(1)
-            completion_ids = output_ids[:, prompt_len:]  # [B*num_gen, R]
-            full_mask = (output_ids != self.tokenizer.pad_token_id).long()
-            per_token_logps = compute_per_token_logps(self.policy_model, output_ids, completion_ids.size(1), attention_mask=full_mask)
+        was_training = model.training
+        model.eval()
+        try:
+            with torch.no_grad(), ctx:
+                output_ids = model.generate(
+                    input_ids=prompt_ids.repeat_interleave(num_generations, dim=0),
+                    attention_mask=attention_mask.repeat_interleave(num_generations, dim=0),
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    temperature=temperature,
+                    num_return_sequences=1,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    # PAD is storage padding, never a policy action.  Sampling
+                    # it inside a response would make later attention masks
+                    # ambiguous and invalidate behavior-policy log-probs.
+                    suppress_tokens=(
+                        [self.tokenizer.pad_token_id]
+                        if self.tokenizer.pad_token_id is not None
+                        and self.tokenizer.pad_token_id != self.tokenizer.eos_token_id
+                        else None
+                    ),
+                ).clone()  # [B*num_gen, P+R]
+                prompt_len = prompt_ids.size(1)
+                completion_ids = output_ids[:, prompt_len:]  # [B*num_gen, R]
+                full_mask = (output_ids != self.tokenizer.pad_token_id).long()
+                per_token_logps = compute_per_token_logps(
+                    self.policy_model, output_ids, completion_ids.size(1), attention_mask=full_mask
+                )
+        finally:
+            model.train(was_training)
         completions = self.tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
         return RolloutResult(output_ids, completion_ids, per_token_logps, completions,
                              prompt_ids.new_full((output_ids.size(0),), prompt_len),
