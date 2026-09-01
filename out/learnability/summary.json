@@ -1,0 +1,26 @@
+{
+  "data_path": "/root/minimind/dataset/agent_rl_tool_challenge_train.jsonl",
+  "sft_data_path": "/root/minimind/dataset/agent_sft_tool_challenge_curriculum_96.jsonl",
+  "excluded_sft_questions": 96,
+  "candidate_pool": 288,
+  "initial_inspection_questions": 96,
+  "inspected_questions_total": 96,
+  "selected_diagnostic_questions": 32,
+  "selected_category_counts": {
+    "challenge_time_and_unit": 8,
+    "challenge_translation_and_math": 10,
+    "challenge_weather_and_exchange": 14
+  },
+  "all_correct_questions": 0,
+  "all_wrong_questions": 60,
+  "mixed_success_questions": 36,
+  "selection_seed": 20260901,
+  "independent_seed": 20260902,
+  "sampling": {
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 1.0,
+    "num_generations": 8
+  },
+  "note": "selection decode is not the baseline; independent_seed records are the selected-set baseline"
+}
