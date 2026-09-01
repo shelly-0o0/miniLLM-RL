@@ -50,6 +50,7 @@ python scripts/eval_agent_rlvr.py \
   --max_gen_len "${MM_MAX_GEN_LEN}" \
   --max_total_len "${MM_MAX_TOTAL_LEN}" \
   --thinking_ratio 0 \
+  --rollout_temperature 1 --rollout_top_k 0 --rollout_top_p 1 \
   --reward_mode strict \
   --require_tool_call_for_success 1 \
   --hidden_size 768 \

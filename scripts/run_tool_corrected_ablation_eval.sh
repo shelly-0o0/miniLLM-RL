@@ -38,6 +38,7 @@ export PYTHONUNBUFFERED=1
   --max_gen_len 128 \
   --max_total_len 1024 \
   --thinking_ratio 0 \
+  --rollout_temperature 1 --rollout_top_k 0 --rollout_top_p 1 \
   --require_tool_call_for_success 1 \
   --reward_mode strict \
   --hidden_size 768 \

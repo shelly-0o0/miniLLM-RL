@@ -313,7 +313,36 @@ task_success = (
 
 Calculator 使用 AST 白名单，不执行任意 Python 表达式。Soft Overlong 在长度上限前设置线性惩罚，避免模型等到硬截断才受到惩罚。
 
-### 8.3 “截断率”的口径修正
+### 8.3 `gt` 的真实语义：不是一段完整的标准答案
+
+`gt` 是数据行中的独立字段，由数据生成器预先写入；verifier 不会根据模型输出反推或更新 `gt`。它通常是“需要被验证的标准值/关键事实列表”，而不是完整自然语言答案。例如：
+
+```json
+{"gt": ["14375"]}
+{"gt": ["5°C", "2025-03-07 06:30:00"]}
+```
+
+第一行表示计算器结果必须包含 14375；第二行表示多工具任务必须同时包含温度和时间两个事实。`oracle_calls` 与 `oracle_observations` 是数据审计和 Agent SFT 构造使用的字段，`AgentRLDataset` 不把它们交给策略。
+
+`AgentRLDataset.parse_conversations()` 返回 `conversations[:-1]`，因此最后一条 assistant 消息不会作为 rollout prompt 输入模型。在原始 smoke fixture 中，最后 assistant 恰好是 `"4"`，`gt` 也恰好是 `["4"]`；这是数据样例的对应关系，不是 loader 从 assistant 内容计算 `gt`。在生成的 RLVR 数据中，最后 assistant 内容通常为空，GT 仍然来自独立字段。
+
+Agent SFT 的 oracle 转换脚本会显式用 `gt` 生成一条最终 assistant 文本，例如 `工具执行结果：14375。`；这是为了构造教学轨迹，不代表 RL verifier 读取了模型答案作为 GT。RL 阶段的流程是：
+
+```text
+dataset gt（冻结标准事实）
+  → 模型生成 assistant/tool 多轮轨迹
+  → verifier 重新执行工具
+  → 分别检查 tool observation 中的 gt 和最终 assistant answer 中的 gt
+  → 合成 task_success 与 reward
+```
+
+`validate_gt_in_text()` 先做 Unicode NFKC 归一化和大小写折叠；数字 GT 使用完整数字 token 解析并以 `1e-6` 容差比较，避免 GT=4 被输出 14 的子串攻击；文本 GT 使用 ASCII word boundary 或 CJK 归一化匹配。`<answer>...</answer>`、`\\boxed{...}`、`Final answer:`/`最终答案:` 会优先定义最终答案区域，否则取最后一个非空行。
+
+在 `calculate_rewards()` 中，工具任务还会把重新执行得到的 observation 序列送入 `validate_gt_in_text(..., final_answer_only=False)`，计算 `tool_evidence_coverage`；再把最终 assistant 文本送入默认的 `final_answer_only=True` 分支，计算 `answer_accuracy`。严格 `task_success` 还要求格式闭合、必需工具已调用、每个调用合法且成功、GT 被工具证据支持、轨迹未 unfinished。因此“最终答案中出现 GT”只是必要条件，不是完整成功条件。
+
+当前通用 verifier 对多个数值 GT 主要检查“所有目标值是否出现”，不强制数值顺序；对生产级任务应替换为任务专用结构化 verifier（例如按字段名、调用顺序和 JSON schema 对齐）。
+
+### 8.4 “截断率”的口径修正
 
 当前正式日志记录的是 `unfinished`、平均/P95 响应长度，并拒绝 rollout 后左截断；它没有区分命中 `max_new_tokens`、`max_turns`、`max_context` 还是工具错误。因此本报告使用“未完成率”，不把它冒充 token truncation rate。
 

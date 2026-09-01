@@ -20,7 +20,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dataset.lm_dataset import AgentRLDataset
 from model.model_minimind import MiniMindConfig
 from trainer.policy_optimization import positive_kl_estimate
-from trainer.rollout_engine import TorchRolloutEngine, compute_per_token_logps
+from trainer.rollout_engine import (
+    TorchRolloutEngine, compute_per_token_logps, legal_action_blocked_ids,
+)
 from trainer.train_agent import calculate_rewards, rollout_batch, shift_action_mask
 from trainer.trainer_utils import init_model, setup_seed
 
@@ -98,10 +100,14 @@ def evaluate_checkpoint(args, weight, seed, dataset, reference_model, tokenizer)
             rollout_values = rollout_batch(
                 engine, tokenizer, messages, tools, args.num_generations,
                 max_turns=args.max_turns, max_new_tokens=args.max_gen_len,
-                thinking_ratio=args.thinking_ratio, device=args.device,
+                thinking_ratio=args.thinking_ratio,
+                temperature=args.rollout_temperature,
+                top_k=args.rollout_top_k,
+                top_p=args.rollout_top_p,
+                device=args.device,
             )
             (completions, _, prompt_ids, response_ids, response_masks, _,
-             turn_outputs, unfinished) = rollout_values
+             turn_outputs, unfinished, traces) = rollout_values
             reward_output = calculate_rewards(
                 prompts, completions, gt, tools, args.num_generations,
                 required_tools, reward_model=None, device=args.device,
@@ -116,11 +122,14 @@ def evaluate_checkpoint(args, weight, seed, dataset, reference_model, tokenizer)
                 args.max_total_len, args.device,
             )
             current_logps = compute_per_token_logps(
-                model, input_ids, input_ids.size(1) - 1, attention_mask=attention_mask
+                model, input_ids, input_ids.size(1) - 1,
+                attention_mask=attention_mask,
+                blocked_token_ids=legal_action_blocked_ids(tokenizer),
             ).float()
             reference_logps = compute_per_token_logps(
                 reference_model, input_ids, input_ids.size(1) - 1,
                 attention_mask=attention_mask,
+                blocked_token_ids=legal_action_blocked_ids(tokenizer),
             ).float()
             per_token_kl = positive_kl_estimate(current_logps, reference_logps)
             row_kl = (per_token_kl * completion_mask).sum(1) / completion_mask.sum(1).clamp(min=1)
@@ -151,6 +160,10 @@ def evaluate_checkpoint(args, weight, seed, dataset, reference_model, tokenizer)
                 "generation_index": local_index % args.num_generations,
                 "gt": gt[prompt_offset],
                 "completion": completion,
+                "trace": traces[local_index],
+                "actions": [turn["action"] for turn in traces[local_index]["turns"]],
+                "observations": [turn["observation"] for turn in traces[local_index]["turns"]],
+                "stop_reason": traces[local_index]["stop_reason"],
                 **{key: fields[key][local_index] for key in fields},
             })
 
@@ -161,6 +174,9 @@ def evaluate_checkpoint(args, weight, seed, dataset, reference_model, tokenizer)
     summary = {
         "checkpoint": weight,
         "seed": seed,
+        "rollout_temperature": args.rollout_temperature,
+        "rollout_top_k": args.rollout_top_k,
+        "rollout_top_p": args.rollout_top_p,
         "num_trajectories": len(trajectory_records),
         **{key: value.mean().item() for key, value in tensors.items()},
         "reward_std": tensors["reward"].std(unbiased=False).item(),
@@ -184,6 +200,7 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate MiniMind RLVR checkpoints on a fixed Agent dataset")
     parser.add_argument("--weights", required=True, help="逗号分隔，例如 grpo,cispo,dapo,gspo")
     parser.add_argument("--reference_weight", default="full_sft", help="KL参考策略")
+    parser.add_argument("--reference_save_dir", default=None, help="KL参考策略所在目录；默认使用 save_dir")
     parser.add_argument("--data_path", default="./dataset/agent_rl_math.jsonl")
     parser.add_argument("--save_dir", default="./out")
     parser.add_argument("--tokenizer_path", default="./model")
@@ -197,6 +214,9 @@ def main():
     parser.add_argument("--max_total_len", type=int, default=2500)
     parser.add_argument("--max_position_embeddings", type=int, default=32768)
     parser.add_argument("--thinking_ratio", type=float, default=0.0)
+    parser.add_argument("--rollout_temperature", type=float, default=1.0)
+    parser.add_argument("--rollout_top_k", type=int, default=0)
+    parser.add_argument("--rollout_top_p", type=float, default=1.0)
     parser.add_argument("--require_tool_call_for_success", type=int, default=1, choices=[0, 1])
     parser.add_argument("--reward_mode", choices=["strict", "shaped"], default="strict")
     parser.add_argument("--hidden_size", type=int, default=768)
@@ -215,6 +235,8 @@ def main():
         )
     if args.limit < 1 or args.batch_size < 1 or args.num_generations < 1:
         parser.error("limit, batch_size and num_generations must be >= 1")
+    if args.rollout_temperature <= 0 or args.rollout_top_k < 0 or not 0 < args.rollout_top_p <= 1:
+        parser.error("rollout_temperature must be > 0, rollout_top_k >= 0 and rollout_top_p in (0, 1]")
 
     config = MiniMindConfig(
         hidden_size=args.hidden_size,
@@ -224,7 +246,7 @@ def main():
     )
     reference_model, tokenizer = init_model(
         config, args.reference_weight, tokenizer_path=args.tokenizer_path,
-        save_dir=args.save_dir, device=args.device,
+        save_dir=args.reference_save_dir or args.save_dir, device=args.device,
     )
     reference_model.eval().requires_grad_(False)
     full_dataset = AgentRLDataset(args.data_path, tokenizer, max_length=args.max_position_embeddings)

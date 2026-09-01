@@ -423,6 +423,11 @@ class MiniMindForCausalLM(PreTrainedModel, GenerationMixin):
     def generate(self, inputs=None, attention_mask=None, max_new_tokens=8192, temperature=0.85, top_p=0.85, top_k=50, eos_token_id=2, streamer=None, use_cache=True, num_return_sequences=1, do_sample=True, repetition_penalty=1.0, **kwargs):
         input_ids = kwargs.pop("input_ids", inputs).repeat(num_return_sequences, 1)
         attention_mask = attention_mask.repeat(num_return_sequences, 1) if attention_mask is not None else None
+        suppress_tokens = kwargs.pop("suppress_tokens", None)
+        if temperature <= 0:
+            raise ValueError("temperature must be > 0")
+        if not 0 <= top_p <= 1:
+            raise ValueError("top_p must be in [0, 1]")
         # An all-valid mask carries no information but can prevent SDPA from
         # selecting its fastest kernel during single-token cached decoding.
         # Check it once before the loop instead of once per generated token.
@@ -435,11 +440,19 @@ class MiniMindForCausalLM(PreTrainedModel, GenerationMixin):
             past_len = past_key_values[0][0].shape[1] if past_key_values else 0
             outputs = self.forward(input_ids[:, past_len:], attention_mask, past_key_values, use_cache=use_cache, **kwargs)
             attention_mask = torch.cat([attention_mask, attention_mask.new_ones(attention_mask.shape[0], 1)], -1) if attention_mask is not None else None
-            logits = outputs.logits[:, -1, :] / temperature
+            logits = outputs.logits[:, -1, :].float() / temperature
+            if suppress_tokens:
+                legal_logits = logits.clone()
+                legal_ids = [int(token_id) for token_id in suppress_tokens
+                             if 0 <= int(token_id) < legal_logits.size(-1)]
+                if legal_ids:
+                    legal_logits[..., legal_ids] = -float('inf')
+                logits = legal_logits
             if repetition_penalty != 1.0:
                 for i in range(input_ids.shape[0]):
                     seen = torch.unique(input_ids[i]); score = logits[i, seen]; logits[i, seen] = torch.where(score > 0, score / repetition_penalty, score * repetition_penalty)
             if top_k > 0:
+                top_k = min(top_k, logits.size(-1))
                 logits[logits < torch.topk(logits, top_k)[0][..., -1, None]] = -float('inf')
             if top_p < 1.0:
                 sorted_logits, sorted_indices = torch.sort(logits, descending=True)

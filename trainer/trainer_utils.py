@@ -13,6 +13,7 @@
 
 import os
 import sys
+import re
 
 # 让 trainer 目录下的脚本可以直接运行，同时还能正确 import 上层模块
 __package__ = "trainer"
@@ -268,6 +269,18 @@ def init_model(
     if from_weight != 'none':
         moe_suffix = '_moe' if lm_config.use_moe else ''
         weight_path = f'{save_dir}/{from_weight}_{lm_config.hidden_size}{moe_suffix}.pth'
+        if not os.path.exists(weight_path):
+            # Keep immutable group checkpoints loadable across both naming
+            # conventions used by the agent experiments:
+            #   weight_768_groups50.pth and weight_groups50_768.pth.
+            group_match = re.match(r'^(.*)_groups(\d+)$', str(from_weight))
+            if group_match:
+                reordered = (
+                    f'{save_dir}/{group_match.group(1)}_{lm_config.hidden_size}'
+                    f'{moe_suffix}_groups{group_match.group(2)}.pth'
+                )
+                if os.path.exists(reordered):
+                    weight_path = reordered
 
         # map_location=device 保证在当前设备上加载
         weights = torch.load(weight_path, map_location=device)

@@ -14,25 +14,72 @@ import torch.distributed as dist
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel
 from transformers import AutoTokenizer
 
 
+def masked_log_softmax(logits: Tensor, blocked_token_ids: Optional[Iterable[int]] = None) -> Tensor:
+    """Compute FP32 log-softmax over the same legal action set as sampling.
+
+    PAD is storage padding, not a policy action.  Applying the mask before
+    softmax is important even when PAD never appears in a sampled completion:
+    it makes rollout, old-policy and current-policy probabilities exactly
+    comparable on the finite vocabulary used by the policy.
+    """
+
+    logits = logits.float()
+    if blocked_token_ids:
+        logits = logits.clone()
+        valid_ids = [int(token_id) for token_id in blocked_token_ids
+                     if token_id is not None
+                     and 0 <= int(token_id) < logits.size(-1)]
+        if valid_ids:
+            logits[..., valid_ids] = -torch.inf
+    return torch.log_softmax(logits, dim=-1)
+
+
+def legal_action_blocked_ids(tokenizer) -> List[int]:
+    """Return storage tokens that must not be sampled as policy actions."""
+
+    pad_id = getattr(tokenizer, "pad_token_id", None)
+    eos_id = getattr(tokenizer, "eos_token_id", None)
+    return [pad_id] if pad_id is not None and pad_id != eos_id else []
+
+
 # ===== 计算每个 token 的 logprob =====
-def compute_per_token_logps(model, input_ids: Tensor, n_keep: int, attention_mask: Optional[Tensor] = None) -> Tensor:
+def compute_per_token_logps(
+    model,
+    input_ids: Tensor,
+    n_keep: int,
+    attention_mask: Optional[Tensor] = None,
+    blocked_token_ids: Optional[Iterable[int]] = None,
+) -> Tensor:
     if n_keep <= 0:
         return input_ids.new_empty((input_ids.size(0), 0), dtype=torch.float32)
     unwrapped = model.module if isinstance(model, DistributedDataParallel) else model
     input_ids = input_ids.detach().clone() if input_ids.is_inference() else input_ids
     logits = unwrapped(input_ids, attention_mask=attention_mask, logits_to_keep=n_keep + 1).logits[:, :-1, :]
+    log_probs = masked_log_softmax(logits, blocked_token_ids=blocked_token_ids)
+    blocked_set = {int(token_id) for token_id in (blocked_token_ids or [])
+                   if token_id is not None}
     per_token_logps = []
-    for logits_row, ids_row in zip(logits, input_ids[:, -n_keep:]):
+    for log_probs_row, ids_row in zip(log_probs, input_ids[:, -n_keep:]):
         ids_row = ids_row.detach().clone() if ids_row.is_inference() else ids_row
-        per_token_logps.append(
-            torch.gather(logits_row.log_softmax(dim=-1), 1, ids_row.unsqueeze(1)).squeeze(1)
-        )
+        selected = torch.gather(log_probs_row, 1, ids_row.unsqueeze(1)).squeeze(1)
+        if blocked_set:
+            # Right-padding is storage, not an action.  Return a neutral value
+            # at those positions so later multiplication by completion_mask
+            # cannot create ``0 * -inf = NaN``.
+            blocked_positions = torch.zeros_like(ids_row, dtype=torch.bool)
+            for blocked_id in blocked_set:
+                blocked_positions |= ids_row.eq(blocked_id)
+            selected = torch.where(
+                blocked_positions,
+                torch.zeros_like(selected), selected,
+            )
+        per_token_logps.append(selected)
     return torch.stack(per_token_logps)
 
 
@@ -52,7 +99,11 @@ class RolloutEngine(ABC):
     tokenizer = None
     
     @abstractmethod
-    def rollout(self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int, max_new_tokens: int, temperature: float = 0.8) -> RolloutResult:
+    def rollout(
+        self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int,
+        max_new_tokens: int, temperature: float = 1.0, top_k: int = 0,
+        top_p: float = 1.0,
+    ) -> RolloutResult:
         pass
     
     @abstractmethod
@@ -68,7 +119,11 @@ class TorchRolloutEngine(RolloutEngine):
         self.device = device
         self.autocast_ctx = autocast_ctx
     
-    def rollout(self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int, max_new_tokens: int, temperature: float = 0.8) -> RolloutResult:
+    def rollout(
+        self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int,
+        max_new_tokens: int, temperature: float = 1.0, top_k: int = 0,
+        top_p: float = 1.0,
+    ) -> RolloutResult:
         model = self.policy_model.module if isinstance(self.policy_model, DistributedDataParallel) else self.policy_model
         ctx = self.autocast_ctx if self.autocast_ctx else nullcontext()
         was_training = model.training
@@ -81,6 +136,8 @@ class TorchRolloutEngine(RolloutEngine):
                     max_new_tokens=max_new_tokens,
                     do_sample=True,
                     temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
                     num_return_sequences=1,
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
@@ -98,7 +155,9 @@ class TorchRolloutEngine(RolloutEngine):
                 completion_ids = output_ids[:, prompt_len:]  # [B*num_gen, R]
                 full_mask = (output_ids != self.tokenizer.pad_token_id).long()
                 per_token_logps = compute_per_token_logps(
-                    self.policy_model, output_ids, completion_ids.size(1), attention_mask=full_mask
+                    self.policy_model, output_ids, completion_ids.size(1),
+                    attention_mask=full_mask,
+                    blocked_token_ids=legal_action_blocked_ids(self.tokenizer),
                 )
         finally:
             model.train(was_training)
@@ -120,7 +179,11 @@ class SGLangRolloutEngine(RolloutEngine):
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         self.http = requests
     
-    def rollout(self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int, max_new_tokens: int, temperature: float = 0.8) -> RolloutResult:
+    def rollout(
+        self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int,
+        max_new_tokens: int, temperature: float = 1.0, top_k: int = 0,
+        top_p: float = 1.0,
+    ) -> RolloutResult:
         # 去除左侧 padding tokens，只保留有效 token
         input_ids_list = []
         for ids, mask in zip(prompt_ids, attention_mask):
@@ -132,6 +195,8 @@ class SGLangRolloutEngine(RolloutEngine):
             "input_ids": all_input_ids,
             "sampling_params": {
                 "temperature": temperature,
+                "top_k": top_k,
+                "top_p": top_p,
                 "max_new_tokens": max_new_tokens,
                 "stop_token_ids": [self.tokenizer.eos_token_id] if self.tokenizer.eos_token_id else [],
             },

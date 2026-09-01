@@ -20,14 +20,16 @@ REPORT_METRICS = (
     "rollout_logprob_mae", "rollout_ratio_mean",
     "group_reward_std", "zero_variance_group_rate", "unfinished_rate",
     "dynamic_acceptance_rate",
-    "candidate_groups", "accepted_groups", "candidate_trajectories",
-    "candidate_action_tokens", "tool_calls", "optimizer_updates",
+    "candidate_groups", "accepted_groups", "effective_groups",
+    "candidate_trajectories", "candidate_action_tokens", "generated_tokens",
+    "tool_calls", "optimizer_updates",
     "wall_time_seconds",
 )
 
 CUMULATIVE_METRICS = {
-    "candidate_groups", "accepted_groups", "candidate_trajectories",
-    "candidate_action_tokens", "tool_calls", "optimizer_updates",
+    "candidate_groups", "accepted_groups", "effective_groups",
+    "candidate_trajectories", "candidate_action_tokens", "generated_tokens",
+    "tool_calls", "optimizer_updates",
     "wall_time_seconds",
 }
 

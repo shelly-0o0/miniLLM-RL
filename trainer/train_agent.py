@@ -18,7 +18,6 @@ import warnings
 import unicodedata
 from dataclasses import dataclass
 import torch
-import torch.nn.functional as F
 import torch.distributed as dist
 from contextlib import nullcontext
 from torch import optim
@@ -29,7 +28,10 @@ from transformers import AutoTokenizer
 from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from dataset.lm_dataset import AgentRLDataset
 from trainer.trainer_utils import Logger, is_main_process, lm_checkpoint, init_distributed_mode, setup_seed, SkipBatchSampler, init_model, LMForRewardModel
-from trainer.rollout_engine import create_rollout_engine, compute_per_token_logps
+from trainer.rollout_engine import (
+    create_rollout_engine, compute_per_token_logps, masked_log_softmax,
+    legal_action_blocked_ids,
+)
 from trainer.policy_optimization import (
     compute_policy_loss,
     distributed_token_mean_scale,
@@ -81,6 +83,20 @@ def checkpoint_state_dict(model, dtype_name="float32"):
         ).contiguous()
         for key, value in model.state_dict().items()
     }
+
+
+def save_policy_checkpoint(model, path, dtype_name="float32"):
+    """Atomically save one immutable policy snapshot for curve evaluation."""
+
+    raw_model = model.module if isinstance(model, DistributedDataParallel) else model
+    raw_model = getattr(raw_model, "_orig_mod", raw_model)
+    state_dict = checkpoint_state_dict(raw_model, dtype_name)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    temporary_path = path + ".tmp"
+    torch.save(state_dict, temporary_path)
+    os.replace(temporary_path, path)
+    del state_dict
+    return path
 
 # ================================ 工具与 Reward = Start ================================
 
@@ -206,31 +222,50 @@ def execute_tool(name, args):
         except: pass
 
 # ======== 多轮 Rollout ========
-def extract_observation_suffix(tokenizer, canonical_context_ids, action_text, observed_ids):
-    """Extract only environment tokens without rewriting sampled policy tokens.
+def extract_observation_suffix(tokenizer, observed_context, observed_ids, previous_observation_count=0):
+    """Extract environment tokens without re-encoding sampled policy text.
 
-    Decoding sampled token ids to text and encoding that text again is not a
-    lossless operation for every tokenizer input.  The rendered chat template
-    is therefore used solely to identify the suffix introduced by the tool
-    observation.  The trajectory itself keeps the exact ids and log-probs
-    returned by the behavior policy.
+    The decoded assistant action is not guaranteed to round-trip through a
+    BPE tokenizer (especially around special-token boundaries), so locating
+    the observation by ``tokenize(decoded_action)`` can corrupt the response
+    ledger.  Instead, locate the newly-added ``<tool_response>`` in the
+    rendered environment context and use fast-tokenizer character offsets to
+    find the corresponding token boundary.
     """
 
-    canonical_action_ids = tokenizer(
-        action_text, add_special_tokens=False
-    ).input_ids + [tokenizer.eos_token_id]
-    canonical_prefix = list(canonical_context_ids) + canonical_action_ids
-    if observed_ids[:len(canonical_prefix)] != canonical_prefix:
-        mismatch = next(
-            (position for position, (left, right) in enumerate(zip(observed_ids, canonical_prefix))
-             if left != right),
-            min(len(observed_ids), len(canonical_prefix)),
-        )
+    marker = "<tool_response>"
+    marker_positions = [
+        match.start() for match in re.finditer(re.escape(marker), observed_context)
+    ]
+    if previous_observation_count >= len(marker_positions):
         raise RuntimeError(
-            "The chat template cannot isolate the tool-observation suffix from its "
-            f"canonical assistant text (first mismatch at token {mismatch})."
+            "The chat template did not render the newly-added tool observation."
         )
-    return observed_ids[len(canonical_prefix):]
+    observation_start = marker_positions[previous_observation_count]
+    encoded = tokenizer(
+        observed_context,
+        add_special_tokens=False,
+        return_offsets_mapping=True,
+    )
+    offsets = encoded.get("offset_mapping")
+    if offsets is None:
+        raise RuntimeError(
+            "The tokenizer must provide offset mappings to isolate tool observations."
+        )
+    if (
+        offsets
+        and isinstance(offsets[0], (list, tuple))
+        and offsets[0]
+        and isinstance(offsets[0][0], (list, tuple))
+    ):
+        offsets = offsets[0]
+    suffix_index = next(
+        (index for index, (start, end) in enumerate(offsets) if end > observation_start),
+        None,
+    )
+    if suffix_index is None or suffix_index > len(observed_ids):
+        raise RuntimeError("Could not map the rendered tool observation to token ids.")
+    return observed_ids[suffix_index:]
 
 
 def rollout_single(
@@ -241,7 +276,9 @@ def rollout_single(
     max_turns=3,
     max_new_tokens=256,
     thinking_ratio=0.5,
-    temperature=0.8,
+    temperature=1.0,
+    top_k=0,
+    top_p=1.0,
     device="cuda",
 ):
     all_outputs = []
@@ -251,6 +288,8 @@ def rollout_single(
     response_old_logps = []
     final_context = ""
     unfinished = False
+    stop_reason = "max_turns"
+    trace = {"turns": [], "stop_reason": stop_reason}
     open_thinking = random.random() < thinking_ratio
     actual_context_ids = None
     for turn in range(max_turns):
@@ -275,6 +314,8 @@ def rollout_single(
             num_generations=1,
             max_new_tokens=max_new_tokens,
             temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
         )
         new_ids = rollout_result.completion_ids[0].tolist()
         new_logps = rollout_result.per_token_logps[0].tolist()
@@ -297,13 +338,24 @@ def rollout_single(
         response_old_logps.extend(new_logps)
         final_context = context + new_text
         calls = parse_tool_calls(new_text)
+        turn_trace = {
+            "turn": turn,
+            "action": {"text": new_text, "token_ids": new_ids, "tool_calls": calls},
+            "observation": [],
+            "stop_reason": "final_answer" if not calls else "tool_call",
+        }
         if not calls:
+            stop_reason = "final_answer"
+            trace["turns"].append(turn_trace)
             break
         # A tool turn needs an explicit policy-sampled EOS boundary.  If the
         # response merely hit max_new_tokens, do not synthesize an action that
         # the behavior policy never sampled.
         if not new_ids or new_ids[-1] != tokenizer.eos_token_id:
             unfinished = True
+            stop_reason = "max_new_tokens"
+            turn_trace["stop_reason"] = stop_reason
+            trace["turns"].append(turn_trace)
             break
         unfinished = turn == max_turns - 1
         messages.append({"role": "assistant", "content": new_text})
@@ -314,22 +366,37 @@ def rollout_single(
                 except: raw = {}
             result = execute_tool(name, raw)
             result_str = (json.dumps(result, ensure_ascii=False) if result else '{"error": "tool not found"}')[:2048]  # 防止天文数字撑爆tokenizer
+            turn_trace["observation"].append({
+                "tool": name,
+                "arguments": raw,
+                "result": result_str,
+                "executed": result is not None,
+            })
             messages.append({"role": "tool", "content": result_str})
 
+        previous_observation_count = context.count("<tool_response>")
         observe_context = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=not unfinished, tools=tools, open_thinking=open_thinking)
         observe_ids = tokenizer(observe_context, return_tensors="pt", add_special_tokens=False)["input_ids"][0].tolist()
         obs_delta = extract_observation_suffix(
-            tokenizer, canonical_context_ids, new_text, observe_ids
+            tokenizer, observe_context, observe_ids, previous_observation_count
         )
         response_ids.extend(obs_delta)
         response_mask.extend([0] * len(obs_delta))
         response_old_logps.extend([0.0] * len(obs_delta))
         actual_context_ids = prompt_ids + response_ids
         final_context = observe_context
+        if unfinished:
+            stop_reason = "max_turns"
+            turn_trace["stop_reason"] = stop_reason
+        trace["turns"].append(turn_trace)
 
     final_output = all_outputs[-1] if all_outputs else ""
     prompt_ids = prompt_ids or []
-    return final_output, final_context, prompt_ids, response_ids, response_mask, response_old_logps, list(all_outputs), unfinished
+    if not trace["turns"] and not all_outputs:
+        stop_reason = "empty_generation"
+    trace["stop_reason"] = stop_reason
+    return (final_output, final_context, prompt_ids, response_ids, response_mask,
+            response_old_logps, list(all_outputs), unfinished, trace)
 
 def rollout_batch(
     rollout_engine,
@@ -340,7 +407,9 @@ def rollout_batch(
     max_turns=3,
     max_new_tokens=256,
     thinking_ratio=0.5,
-    temperature=0.8,
+    temperature=1.0,
+    top_k=0,
+    top_p=1.0,
     device="cuda",
 ):
     all_completions = []
@@ -351,12 +420,13 @@ def rollout_batch(
     all_response_old_logps = []
     all_turn_outputs = []
     all_unfinished = []
+    all_traces = []
     for messages, tools in zip(messages_batch, tools_batch):
         for _ in range(num_gen):
             msgs_copy = [dict(m) for m in messages]
-            completion, context, prompt_ids, response_ids, response_mask, response_old_logps, turn_outputs, unfinished = rollout_single(
+            completion, context, prompt_ids, response_ids, response_mask, response_old_logps, turn_outputs, unfinished, trace = rollout_single(
                 rollout_engine, tokenizer, msgs_copy, tools, max_turns,
-                max_new_tokens, thinking_ratio, temperature, device,
+                max_new_tokens, thinking_ratio, temperature, top_k, top_p, device,
             )
             all_completions.append(completion)
             all_contexts.append(context)
@@ -366,7 +436,10 @@ def rollout_batch(
             all_response_old_logps.append(response_old_logps)
             all_turn_outputs.append(turn_outputs)
             all_unfinished.append(unfinished)
-    return all_completions, all_contexts, all_prompt_ids, all_response_ids, all_response_masks, all_response_old_logps, all_turn_outputs, all_unfinished
+            all_traces.append(trace)
+    return (all_completions, all_contexts, all_prompt_ids, all_response_ids,
+            all_response_masks, all_response_old_logps, all_turn_outputs,
+            all_unfinished, all_traces)
 
 
 def shift_action_mask(full_response_masks):
@@ -627,7 +700,7 @@ def _rollout_group_records(messages_batch, tools_batch, required_tools_batch, gt
     """Split a rollout batch into indivisible prompt groups for DAPO sampling."""
 
     (completions, contexts, prompt_ids, response_ids, response_masks,
-     old_logps, turn_outputs, unfinished) = rollout_values
+     old_logps, turn_outputs, unfinished, traces) = rollout_values
     records = []
     for group_idx in range(len(messages_batch)):
         start, end = group_idx * group_size, (group_idx + 1) * group_size
@@ -639,6 +712,7 @@ def _rollout_group_records(messages_batch, tools_batch, required_tools_batch, gt
             "prompt_ids": prompt_ids[start:end], "response_ids": response_ids[start:end],
             "response_masks": response_masks[start:end], "old_logps": old_logps[start:end],
             "turn_outputs": turn_outputs[start:end], "unfinished": unfinished[start:end],
+            "traces": traces[start:end],
             "rewards": reward_output.rewards[start:end],
             "task_success": reward_output.task_success[start:end],
             "answer_accuracy": reward_output.answer_accuracy[start:end],
@@ -675,7 +749,7 @@ def _merge_rollout_group_records(records):
         [record["prompt"] for record in records],
         flatten("completions"), flatten("contexts"), flatten("prompt_ids"),
         flatten("response_ids"), flatten("response_masks"), flatten("old_logps"),
-        flatten("turn_outputs"), flatten("unfinished"), output,
+        flatten("turn_outputs"), flatten("unfinished"), flatten("traces"), output,
     )
 
 
@@ -697,7 +771,8 @@ def rl_train_epoch(
         return
     dynamic_buffer = []
     candidate_groups = 0
-    kept_groups = 0
+    accepted_groups = 0
+    effective_groups = 0
     candidate_trajectories = 0
     candidate_action_tokens = 0
     candidate_tool_calls = 0
@@ -705,7 +780,17 @@ def rl_train_epoch(
     optimization_micro_step = 0
     epoch_started = time.time()
 
+    budget_stop_reason = "candidate_pool_exhausted"
     for candidate_step, batch in enumerate(loader, start=candidate_start + 1):
+        if update_step >= target_updates or (
+            args.max_effective_groups > 0
+            and effective_groups >= args.max_effective_groups
+        ) or (
+            args.max_generated_tokens > 0
+            and candidate_action_tokens >= args.max_generated_tokens
+        ):
+            budget_stop_reason = "effective_group_target"
+            break
         candidate_messages = batch['messages']
         candidate_tools = batch['tools']
         candidate_required_tools = batch['required_tools']
@@ -716,10 +801,12 @@ def rl_train_epoch(
                 args.num_generations, max_turns=args.max_turns,
                 max_new_tokens=args.max_gen_len, thinking_ratio=args.thinking_ratio,
                 temperature=args.rollout_temperature,
+                top_k=args.rollout_top_k,
+                top_p=args.rollout_top_p,
                 device=args.device,
             )
         (candidate_completions, _, _, _, candidate_response_masks, _,
-         candidate_turn_outputs, candidate_unfinished) = rollout_values
+         candidate_turn_outputs, candidate_unfinished, _) = rollout_values
         candidate_prompts = [
             tokenizer.apply_chat_template(m, tokenize=False, add_generation_prompt=True, tools=t)
             for m, t in zip(candidate_messages, candidate_tools)
@@ -743,6 +830,8 @@ def rl_train_epoch(
             len(parse_tool_calls(turn))
             for trajectory in candidate_turn_outputs for turn in trajectory
         )
+        if args.max_generated_tokens > 0 and candidate_action_tokens >= args.max_generated_tokens:
+            budget_stop_reason = "max_generated_tokens"
         use_dapo_sampling_recipe = args.loss_type == "dapo" or (
             args.loss_type == "cispo" and args.dynamic_sampling
         )
@@ -765,7 +854,7 @@ def rl_train_epoch(
             group_mask = effective_group_mask(reward_output.task_success, args.num_generations)
             selected = [record for record, keep in zip(records, group_mask.tolist()) if keep]
             dynamic_buffer.extend(selected)
-            kept_groups += len(selected)
+            accepted_groups += len(selected)
             local_ready = torch.tensor(
                 int(len(dynamic_buffer) >= args.batch_size), device=args.device, dtype=torch.int32
             )
@@ -775,7 +864,7 @@ def rl_train_epoch(
                 if candidate_step % args.log_interval == 0 and is_main_process():
                     Logger(
                         f"DAPO dynamic sampling: candidate_groups={candidate_groups}, "
-                        f"kept_groups={kept_groups}, buffered={len(dynamic_buffer)}"
+                        f"accepted_groups={accepted_groups}, buffered={len(dynamic_buffer)}"
                     )
                 continue
             records = dynamic_buffer[:args.batch_size]
@@ -784,13 +873,24 @@ def rl_train_epoch(
             # nominally on-policy batch stale.
             dynamic_buffer = []
         else:
-            kept_groups += len(records)
+            accepted_groups += len(records)
+
+        remaining_groups = (
+            args.max_effective_groups - effective_groups
+            if args.max_effective_groups > 0 else len(records)
+        )
+        records = records[:max(0, remaining_groups)]
+        if not records:
+            if budget_stop_reason == "max_generated_tokens":
+                break
+            continue
 
         (messages_batch, tools_batch, required_tools_batch, gt_batch, prompts, completions, contexts,
          prompt_ids_batch, response_ids_batch, response_masks_batch,
-         response_old_logps_batch, turn_outputs_batch, unfinished_batch,
+         response_old_logps_batch, turn_outputs_batch, unfinished_batch, traces_batch,
          reward_output) = _merge_rollout_group_records(records)
         rewards = reward_output.rewards
+        effective_groups += len(records)
         update_step += 1
 
         trajectory_lengths = [len(p) + len(r) for p, r in zip(prompt_ids_batch, response_ids_batch)]
@@ -846,10 +946,14 @@ def rl_train_epoch(
         model.eval()
         with torch.no_grad(), autocast_ctx:
             old_per_token_logps = compute_per_token_logps(
-                model, input_ids, input_ids.size(1) - 1, attention_mask=full_mask
+                model, input_ids, input_ids.size(1) - 1,
+                attention_mask=full_mask,
+                blocked_token_ids=legal_action_blocked_ids(tokenizer),
             ).float()
             ref_per_token_logps = compute_per_token_logps(
-                ref_model, input_ids, input_ids.size(1) - 1, attention_mask=full_mask
+                ref_model, input_ids, input_ids.size(1) - 1,
+                attention_mask=full_mask,
+                blocked_token_ids=legal_action_blocked_ids(tokenizer),
             ).float()
         model.train(was_training)
 
@@ -893,9 +997,17 @@ def rl_train_epoch(
             with autocast_ctx:
                 res = model(input_ids, attention_mask=full_mask)
                 aux_loss = res.aux_loss if lm_config.use_moe else torch.tensor(0.0, device=args.device)
-                per_token_logps = F.log_softmax(res.logits[:, :-1, :].float(), dim=-1).gather(
+                per_token_logps = masked_log_softmax(
+                    res.logits[:, :-1, :], blocked_token_ids=legal_action_blocked_ids(tokenizer)
+                ).gather(
                     2, input_ids[:, 1:].unsqueeze(-1)
                 ).squeeze(-1)
+                # Storage PAD targets are outside completion_mask.  Keep them
+                # finite so masked policy/KL reductions cannot form 0 * -inf.
+                per_token_logps = torch.where(
+                    input_ids[:, 1:].eq(tokenizer.pad_token_id),
+                    torch.zeros_like(per_token_logps), per_token_logps,
+                )
                 policy_output = compute_policy_loss(
                     loss_type=args.loss_type,
                     current_logps=per_token_logps,
@@ -935,8 +1047,9 @@ def rl_train_epoch(
                 per_token_logps.float(), ref_per_token_logps.float()
             )[action_positions]
             cost_counters = torch.tensor(
-                [candidate_groups, kept_groups, candidate_trajectories,
-                 candidate_action_tokens, candidate_tool_calls],
+                [candidate_groups, accepted_groups, effective_groups,
+                 candidate_trajectories, candidate_action_tokens,
+                 candidate_tool_calls],
                 device=args.device, dtype=torch.float64,
             )
             if dist.is_initialized():
@@ -981,9 +1094,11 @@ def rl_train_epoch(
                 ).item(),
                 "candidate_groups": int(cost_counters[0].item()),
                 "accepted_groups": int(cost_counters[1].item()),
-                "candidate_trajectories": int(cost_counters[2].item()),
-                "candidate_action_tokens": int(cost_counters[3].item()),
-                "tool_calls": int(cost_counters[4].item()),
+                "effective_groups": int(cost_counters[2].item()),
+                "candidate_trajectories": int(cost_counters[3].item()),
+                "candidate_action_tokens": int(cost_counters[4].item()),
+                "generated_tokens": int(cost_counters[4].item()),
+                "tool_calls": int(cost_counters[5].item()),
                 "optimizer_updates": int(scheduler.last_epoch),
                 "wall_time_seconds": time.time() - epoch_started,
                 "learning_rate": optimizer.param_groups[0]['lr'],
@@ -1001,17 +1116,23 @@ def rl_train_epoch(
             if wandb and is_main_process():
                 wandb.log(metrics)
 
-        if (update_step % args.save_interval == 0 or updates_this_epoch == target_updates) and is_main_process():
+        if is_main_process():
             model.eval()
             moe_suffix = '_moe' if lm_config.use_moe else ''
-            ckp = f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}{moe_suffix}.pth'
-            raw_model = model.module if isinstance(model, DistributedDataParallel) else model
-            raw_model = getattr(raw_model, '_orig_mod', raw_model)
-            state_dict = checkpoint_state_dict(raw_model, args.checkpoint_dtype)
-            checkpoint_tmp = ckp + '.tmp'
-            torch.save(state_dict, checkpoint_tmp)
-            os.replace(checkpoint_tmp, ckp)
-            if args.save_resume:
+            if update_step % args.save_interval == 0 or updates_this_epoch == target_updates:
+                ckp = f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}{moe_suffix}.pth'
+                save_policy_checkpoint(model, ckp, args.checkpoint_dtype)
+            while args.checkpoint_groups and args._next_checkpoint_group <= effective_groups:
+                milestone = args._next_checkpoint_group
+                ckp = f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}{moe_suffix}_groups{milestone}.pth'
+                if not os.path.exists(ckp):
+                    save_policy_checkpoint(model, ckp, args.checkpoint_dtype)
+                args._next_checkpoint_group_index += 1
+                args._next_checkpoint_group = (
+                    args.checkpoint_groups[args._next_checkpoint_group_index]
+                    if args._next_checkpoint_group_index < len(args.checkpoint_groups) else math.inf
+                )
+            if args.save_resume and (update_step % args.save_interval == 0 or updates_this_epoch == target_updates):
                 lm_checkpoint(
                     lm_config, weight=args.save_weight, model=model, optimizer=optimizer,
                     epoch=epoch, step=update_step, wandb=wandb,
@@ -1019,27 +1140,45 @@ def rl_train_epoch(
                     candidate_step=candidate_step,
                 )
             model.train()
-            del state_dict
 
         if update_step % args.rollout_sync_interval == 0 or updates_this_epoch == target_updates:
             rollout_engine.update_policy(model)
         if updates_this_epoch >= target_updates:
             break
 
-    if args.dynamic_sampling and update_step < target_updates:
-        raise RuntimeError(
-            "DAPO dynamic sampling could not fill the requested update budget: "
-            f"updates={update_step}/{target_updates}, "
-            f"accepted={kept_groups}/{candidate_groups}. Increase "
-            "--dynamic_sampling_rounds, use a curriculum near the model's "
-            "current ability, or audit the binary verifier."
-        )
+    if update_step >= target_updates or (
+        args.max_effective_groups > 0 and effective_groups >= args.max_effective_groups
+    ):
+        budget_stop_reason = "effective_group_target"
+    elif args.max_generated_tokens > 0 and candidate_action_tokens >= args.max_generated_tokens:
+        budget_stop_reason = "max_generated_tokens"
+    if is_main_process():
+        metric_logger.log({
+            "budget_stop_reason": budget_stop_reason,
+            "candidate_groups": candidate_groups,
+            "accepted_groups": accepted_groups,
+            "effective_groups": effective_groups,
+            "candidate_trajectories": candidate_trajectories,
+            "candidate_action_tokens": candidate_action_tokens,
+            "generated_tokens": candidate_action_tokens,
+            "optimizer_updates": int(scheduler.last_epoch),
+            "budget_complete": budget_stop_reason == "effective_group_target",
+        }, step=epoch * max(target_updates, 1) + update_step)
     if optimization_micro_step and optimization_micro_step % args.accumulation_steps != 0:
         if args.grad_clip > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad()
+    return {
+        "budget_stop_reason": budget_stop_reason,
+        "candidate_groups": candidate_groups,
+        "accepted_groups": accepted_groups,
+        "effective_groups": effective_groups,
+        "candidate_trajectories": candidate_trajectories,
+        "candidate_action_tokens": candidate_action_tokens,
+        "optimizer_updates": int(scheduler.last_epoch),
+    }
 
 
 if __name__ == "__main__":
@@ -1066,7 +1205,15 @@ if __name__ == "__main__":
         "--save_resume", default=1, type=int, choices=[0, 1],
         help="是否同时保存包含Adam/scheduler的断点；短程消融可设0以节省磁盘",
     )
-    parser.add_argument("--max_updates", type=int, default=0, help="每个epoch最多策略更新数；0表示遍历完整数据集")
+    parser.add_argument("--max_updates", type=int, default=0, help="每个epoch最多optimizer更新数；0表示由数据/有效组预算决定")
+    parser.add_argument(
+        "--max_effective_groups", type=int, default=0,
+        help="DAPO有效组预算；0关闭。有效组按混合成功/失败prompt组计数，可重复抽题",
+    )
+    parser.add_argument(
+        "--max_generated_tokens", type=int, default=0,
+        help="assistant候选轨迹生成token预算；0关闭，达到后记录budget不足并停止",
+    )
     parser.add_argument('--hidden_size', default=768, type=int, help="模型隐藏层维度")
     parser.add_argument('--num_hidden_layers', default=8, type=int, help="模型层数")
     parser.add_argument('--use_moe', default=0, type=int, choices=[0, 1], help="是否使用MoE")
@@ -1074,9 +1221,12 @@ if __name__ == "__main__":
     parser.add_argument("--max_gen_len", type=int, default=768, help="单次最大生成长度")
     parser.add_argument("--max_total_len", type=int, default=2500, help="训练侧最终总长度上界")
     parser.add_argument("--max_turns", type=int, default=3, help="每条轨迹最大assistant/tool轮数")
+    parser.add_argument("--tokenizer_path", type=str, default="../model", help="tokenizer目录")
     parser.add_argument("--data_path", type=str, default="../dataset/agent_rl.jsonl", help="训练数据路径")
     parser.add_argument("--num_generations", type=int, default=4, help="每个prompt生成数量")
-    parser.add_argument("--rollout_temperature", type=float, default=0.8, help="策略采样温度")
+    parser.add_argument("--rollout_temperature", type=float, default=1.0, help="策略采样温度")
+    parser.add_argument("--rollout_top_k", type=int, default=0, help="rollout top-k；诊断协议固定为0")
+    parser.add_argument("--rollout_top_p", type=float, default=1.0, help="rollout top-p；诊断协议固定为1")
     parser.add_argument("--beta", type=float, default=0.1, help="KL散度惩罚系数")
     parser.add_argument("--loss_type", type=str, default="cispo", choices=["grpo", "cispo", "dapo", "gspo"], help="策略优化目标")
     parser.add_argument("--epsilon", type=float, default=0.2, help="GRPO的PPO clip epsilon")
@@ -1097,6 +1247,10 @@ if __name__ == "__main__":
     parser.add_argument("--metrics_path", type=str, default="../out/metrics/agent_rlvr.jsonl", help="本地可审计JSONL指标")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
     parser.add_argument('--from_weight', default='full_sft', type=str, help="加载预训练权重名称")
+    parser.add_argument(
+        '--from_save_dir', default=None, type=str,
+        help="初始化权重所在目录；未设置时使用save_dir，便于把输出checkpoint放到独立目录",
+    )
     parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否从checkpoint恢复")
     parser.add_argument("--use_wandb", action="store_true", help="是否使用wandb记录")
     parser.add_argument("--wandb_project", type=str, default="MiniMind-Agent-RL", help="wandb项目名称")
@@ -1106,6 +1260,10 @@ if __name__ == "__main__":
     parser.add_argument("--thinking_ratio", type=float, default=0.1, help="按概率开启thinking（0.0~1.0）")
     parser.add_argument("--reward_model_path", type=str, default="../../internlm2-1_8b-reward", help="Reward模型路径")
     parser.add_argument("--use_reward_model", type=int, default=0, choices=[0, 1], help="是否叠加主观Reward Model；RLVR对比建议关闭")
+    parser.add_argument(
+        "--checkpoint_groups", default="0,50,100,200",
+        help="按累计有效组保存独立权重，逗号分隔；空字符串关闭",
+    )
     parser.add_argument("--rollout_engine", type=str, default="torch", choices=["torch", "sglang"], help="rollout引擎类型")
     parser.add_argument("--sglang_base_url", type=str, default="http://localhost:8998", help="SGLang服务器URL")
     parser.add_argument("--sglang_model_path", type=str, default="../model", help="SGLang tokenizer路径")
@@ -1125,12 +1283,28 @@ if __name__ == "__main__":
         parser.error("weight_decay must be >= 0")
     if args.max_rollout_logprob_mae <= 0:
         parser.error("max_rollout_logprob_mae must be > 0")
-    if args.max_updates < 0:
-        parser.error("max_updates must be >= 0")
+    if args.max_updates < 0 or args.max_effective_groups < 0 or args.max_generated_tokens < 0:
+        parser.error("max_updates, max_effective_groups and max_generated_tokens must be >= 0")
+    if args.rollout_top_k < 0 or not 0 < args.rollout_top_p <= 1:
+        parser.error("rollout_top_k must be >= 0 and rollout_top_p must be in (0, 1]")
+    try:
+        args.checkpoint_groups = sorted({
+            int(item.strip()) for item in args.checkpoint_groups.split(",") if item.strip()
+        })
+    except ValueError:
+        parser.error("checkpoint_groups must be a comma-separated list of integers")
+    if any(item < 0 for item in args.checkpoint_groups):
+        parser.error("checkpoint_groups must be >= 0")
+    args._next_checkpoint_group_index = 0
+    args._next_checkpoint_group = (
+        args.checkpoint_groups[0] if args.checkpoint_groups else math.inf
+    )
     if args.reward_mode == "strict" and args.use_reward_model:
         parser.error("strict RLVR cannot mix a subjective reward model; use --use_reward_model 0")
     if args.dynamic_sampling and args.loss_type not in {"dapo", "cispo"}:
         parser.error("--dynamic_sampling is supported by DAPO and the complete CISPO recipe")
+    if args.max_effective_groups and not args.dynamic_sampling:
+        parser.error("--max_effective_groups requires --dynamic_sampling so effective groups are well-defined")
 
     local_rank = init_distributed_mode()
     if dist.is_initialized(): args.device = f"cuda:{local_rank}"
@@ -1143,9 +1317,13 @@ if __name__ == "__main__":
         run_config={
             "algorithm": args.loss_type,
             "data_path": args.data_path,
+            "from_weight": args.from_weight,
+            "from_save_dir": args.from_save_dir or args.save_dir,
             "seed": args.seed,
             "num_generations": args.num_generations,
             "rollout_temperature": args.rollout_temperature,
+            "rollout_top_k": args.rollout_top_k,
+            "rollout_top_p": args.rollout_top_p,
             "checkpoint_dtype": args.checkpoint_dtype,
             "policy_update_epochs": args.policy_update_epochs,
             "learning_rate": args.learning_rate,
@@ -1154,6 +1332,9 @@ if __name__ == "__main__":
             "dynamic_sampling_rounds": args.dynamic_sampling_rounds,
             "reward_mode": args.reward_mode,
             "max_updates": args.max_updates,
+            "max_effective_groups": args.max_effective_groups,
+            "max_generated_tokens": args.max_generated_tokens,
+            "checkpoint_groups": args.checkpoint_groups,
             "max_turns": args.max_turns,
             "max_gen_len": args.max_gen_len,
             "max_total_len": args.max_total_len,
@@ -1189,9 +1370,19 @@ if __name__ == "__main__":
         resume = 'must' if wandb_id else None
         wandb.init(project=args.wandb_project, name=f"Agent-RL-E{args.epochs}-B{args.batch_size}-LR{args.learning_rate}", id=wandb_id, resume=resume)
 
-    model, tokenizer = init_model(lm_config, args.from_weight, device=args.device)
+    model, tokenizer = init_model(
+        lm_config, args.from_weight,
+        tokenizer_path=args.tokenizer_path,
+        save_dir=args.from_save_dir or args.save_dir,
+        device=args.device,
+    )
 
-    ref_model, _ = init_model(lm_config, args.from_weight, device=args.device)
+    ref_model, _ = init_model(
+        lm_config, args.from_weight,
+        tokenizer_path=args.tokenizer_path,
+        save_dir=args.from_save_dir or args.save_dir,
+        device=args.device,
+    )
     ref_model = ref_model.eval().requires_grad_(False)
 
     reward_model = None
@@ -1222,7 +1413,10 @@ if __name__ == "__main__":
     }
     loader_for_count = DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sampler, collate_fn=collate_fn)
     iters = len(loader_for_count)
-    updates_per_epoch = min(iters, args.max_updates) if args.max_updates else iters
+    if args.max_effective_groups:
+        updates_per_epoch = math.ceil(args.max_effective_groups / args.batch_size)
+    else:
+        updates_per_epoch = min(iters, args.max_updates) if args.max_updates else iters
     total_micro_steps = updates_per_epoch * args.policy_update_epochs * args.epochs
     total_optimizer_steps = math.ceil(total_micro_steps / args.accumulation_steps)
     scheduler = CosineAnnealingLR(optimizer, T_max=total_optimizer_steps, eta_min=args.learning_rate / 10)
@@ -1235,6 +1429,22 @@ if __name__ == "__main__":
         start_epoch = ckp_data['epoch']
         start_step = ckp_data.get('step', 0)
         start_candidate_step = ckp_data.get('candidate_step', start_step)
+
+    # Diagnostic snapshots are immutable and keyed by cumulative effective
+    # groups, so a later checkpoint can never replace the initial policy.
+    if is_main_process() and args.checkpoint_groups and 0 in args.checkpoint_groups:
+        moe_suffix = '_moe' if lm_config.use_moe else ''
+        initial_path = (
+            f'{args.save_dir}/{args.save_weight}_{lm_config.hidden_size}'
+            f'{moe_suffix}_groups0.pth'
+        )
+        if not os.path.exists(initial_path):
+            save_policy_checkpoint(model, initial_path, args.checkpoint_dtype)
+        args._next_checkpoint_group_index = args.checkpoint_groups.index(0) + 1
+        args._next_checkpoint_group = (
+            args.checkpoint_groups[args._next_checkpoint_group_index]
+            if args._next_checkpoint_group_index < len(args.checkpoint_groups) else math.inf
+        )
 
     if args.use_compile == 1:
         model = torch.compile(model)
@@ -1256,7 +1466,13 @@ if __name__ == "__main__":
             # DAPO oversamples candidate prompts but keeps the same number of
             # optimizer updates as the baselines.  New stochastic rollouts are
             # produced on every repeated pass.
-            epoch_indices = epoch_indices * args.dynamic_sampling_rounds
+            repeat_count = args.dynamic_sampling_rounds
+            if args.max_effective_groups:
+                # Dynamic sampling may need many more candidate prompts than
+                # effective groups.  Reusing the same questions is intentional
+                # and is bounded by --max_generated_tokens when provided.
+                repeat_count = max(repeat_count, args.max_effective_groups * args.dynamic_sampling_rounds)
+            epoch_indices = epoch_indices * repeat_count
         batch_sampler = SkipBatchSampler(epoch_indices, args.batch_size, skip)
         loader = DataLoader(train_ds, batch_sampler=batch_sampler, num_workers=args.num_workers, pin_memory=True, collate_fn=collate_fn)
         target_updates = updates_per_epoch
