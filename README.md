@@ -1,8 +1,17 @@
 # miniLLM-RL
 
-一个面向大模型基座训练与 Agentic RLVR 的可复现实验项目。
+一个面向 GSM8K 数学 Agentic RL 后训练的可复现实验项目。
 
-本项目以 [MiniMind](https://github.com/jingyaogong/minimind) 作为轻量级语言模型基线，重点展示我在训练链路增强、策略优化、工具调用、可验证奖励、固定集评测和实验复盘方面的工程实现与实验结果。这里的重点不是重新介绍上游项目，而是呈现一套可以阅读、运行、审计和量化的个人项目成果。
+本项目以 MiniMind-64M 作为 Stage 1 基座，使用统一的 GSM8K 数据、calculator 环境和数学 verifier，研究 PPO、GRPO、CISPO、DAPO、GSPO 的 Agentic RL 后训练；Stage 2 计划将同一套数据和评测协议迁移到 Qwen3-4B，执行 LoRA SFT 与 RL。项目重点是验证训练闭环、奖励信号、算法稳定性和跨规模迁移，不以 GSM8K SOTA 为目标。
+
+## 项目阶段
+
+```text
+Stage 1: MiniMind-64M → Agent SFT → PPO/GRPO/CISPO/DAPO/GSPO
+Stage 2: Qwen3-4B   → LoRA Agent SFT → GRPO/PPO
+```
+
+所有 RL 方法从同一个 SFT checkpoint 分叉，使用相同 GSM8K manifest、prompt、calculator、answer parser 和固定评测集。
 
 ## 项目内容
 
@@ -38,7 +47,16 @@ miniLLM-RL/
 └── requirements.txt
 ```
 
-## 推荐阅读顺序
+## 新主线文档
+
+1. [项目计划](docs/PROJECT_PLAN.md)
+2. [数据集与 Benchmark 规范](docs/DATASET_AND_BENCHMARK.md)
+3. [实验协议](docs/EXPERIMENT_PROTOCOL.md)
+4. [工作记录](docs/WORKLOG.md)
+
+旧的 MiniMind/RL 研究报告保留在 `docs/foundation_model_interview/`，作为历史实现和实验审计材料，不代表新的 GSM8K 主线已经完成。
+
+## 历史文档阅读顺序
 
 1. [复现包总入口](docs/foundation_model_interview/README.md)
 2. [端到端执行指南](docs/foundation_model_interview/00_END_TO_END_GUIDE.md)

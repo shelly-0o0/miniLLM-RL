@@ -1,5 +1,0 @@
-effective_groups,generated_tokens,optimizer_updates,candidate_trajectories,train_task_accuracy,holdout_task_accuracy
-0,0,0,0,0.34375,0.1510416716337204
-50,44802,50,424,0.47265625,0.2109375
-100,92381,100,880,0.48046875,0.2109375
-200,194847,200,1864,0.4921875,0.2356770783662796
