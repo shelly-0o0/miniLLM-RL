@@ -4,6 +4,15 @@ __pycache__/
 .vscode/
 checkpoints/
 out/
+results/raw/
+logs/
+runs/
+wandb/
+models/pretrained/
+data/raw/
+data/processed/
+dataset/raw/
+dataset/processed/
 *.pth
 *.pt
 *.bin
@@ -18,3 +27,8 @@ website/
 docs-minimind/
 learning_notebooks/.cache/
 learning_notebooks/.ipynb_checkpoints/
+
+# Local environment and experiment metadata
+.env
+.venv/
+*.swp
