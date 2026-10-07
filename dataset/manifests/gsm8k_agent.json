@@ -1,0 +1,27 @@
+{
+  "source_manifest": "dataset/manifests/gsm8k.json",
+  "policy": "SFT labels from train only; validation/test labels are verifier-only",
+  "calculator": "trainer.math_env.safe_calculate",
+  "files": {
+    "train_rl": {
+      "path": "data/processed/gsm8k_agent/train_rl.jsonl",
+      "rows": 6726,
+      "sha256": "ec9aecf7083386226e17f9eead206b4e045e952ac2c28080f9c9120da74fbf3e"
+    },
+    "train_sft": {
+      "path": "data/processed/gsm8k_agent/train_sft.jsonl",
+      "rows": 6637,
+      "sha256": "132a54eb2266ac75ea44c4055ca6ce3661df5b80aa556ff1b602366cdbf772cb"
+    },
+    "validation_rl": {
+      "path": "data/processed/gsm8k_agent/validation_rl.jsonl",
+      "rows": 747,
+      "sha256": "a7f6c3d91f63269ab31be576d352ccbb19e6280f1fb3818e2eb4d78b8be13700"
+    },
+    "test_rl": {
+      "path": "data/processed/gsm8k_agent/test_rl.jsonl",
+      "rows": 1319,
+      "sha256": "909ce396576b5cfe2c64889c0e2159632d532b77b8854740e951aa06e41b7ca9"
+    }
+  }
+}

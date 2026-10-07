@@ -1,0 +1,80 @@
+seed: 42
+
+model:
+  name: Qwen/Qwen3-4B-Base
+  revision: main
+  trust_remote_code: false
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+  compute_dtype: bfloat16
+  use_im_end_as_eos: true
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+    - lm_head
+
+initialization:
+  adapter_path: null
+
+data:
+  train_path: data/processed/gsm8k_agent/train_rl.jsonl
+  max_prompt_length: 1024
+
+rollout:
+  num_generations: 8
+  max_turns: 3
+  max_new_tokens: 384
+  max_total_length: 2500
+  # The GRPO log-probability ledger uses the model's full softmax.  Sampling
+  # must use that same distribution; temperature/truncation would define a
+  # different behavior policy and invalidate ratios plus MC KL estimates.
+  temperature: 1.0
+  top_k: 0
+  top_p: 1.0
+
+training:
+  # Track 1 compares warm-start effects under the same dense, deterministic
+  # curriculum reward. Final evaluation always uses strict task success.
+  reward_mode: shaped
+  policy_device: cuda:0
+  # A 4-bit base plus both rank-16 LoRA views peaks below 24 GiB in the
+  # measured pilot.  Keeping both views on one GPU also removes cross-device
+  # load drift while preserving distinct frozen reference parameters.
+  reference_device: cuda:0
+  batch_size: 1
+  gradient_accumulation_steps: 1
+  epochs: 1
+  max_candidate_groups: 6726
+  policy_update_epochs: 1
+  learning_rate: 1.0e-6
+  weight_decay: 0.0
+  beta: 0.02
+  epsilon: 0.2
+  max_grad_norm: 1.0
+  max_rollout_logprob_mae: 0.1
+  max_group_kl_k3: 10.0
+  # Consume an isolated heavy-tail KL group without applying its gradient.
+  # Repeated violations still hard-stop the formal run.
+  kl_gate_action: reject_group
+  max_kl_rejections: 64
+  max_consecutive_kl_rejections: 3
+  logging_steps: 1
+  save_steps: 50
+
+output:
+  run_name: qwen3_4b_pure_grpo_s42
+  checkpoint_dir: checkpoints/stage2/qwen3_4b/pure_grpo_s42
+  adapter_dir: out/stage2/qwen3_4b/pure_grpo_s42_adapter
+  metrics_path: out/metrics/qwen3_4b_pure_grpo_s42.jsonl

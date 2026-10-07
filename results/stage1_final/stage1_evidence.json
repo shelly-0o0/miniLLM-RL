@@ -1,0 +1,338 @@
+{
+  "artifacts": [
+    {
+      "bytes": 1909377,
+      "path": "data/processed/gsm8k_agent/test_rl.jsonl",
+      "sha256": "909ce396576b5cfe2c64889c0e2159632d532b77b8854740e951aa06e41b7ca9"
+    },
+    {
+      "bytes": 9676350,
+      "path": "data/processed/gsm8k_agent/train_rl.jsonl",
+      "sha256": "ec9aecf7083386226e17f9eead206b4e045e952ac2c28080f9c9120da74fbf3e"
+    },
+    {
+      "bytes": 8924187,
+      "path": "data/processed/gsm8k_agent/train_sft.jsonl",
+      "sha256": "132a54eb2266ac75ea44c4055ca6ce3661df5b80aa556ff1b602366cdbf772cb"
+    },
+    {
+      "bytes": 1076221,
+      "path": "data/processed/gsm8k_agent/validation_rl.jsonl",
+      "sha256": "a7f6c3d91f63269ab31be576d352ccbb19e6280f1fb3818e2eb4d78b8be13700"
+    },
+    {
+      "bytes": 15532,
+      "path": "dataset/lm_dataset.py",
+      "sha256": "d6409df45ebe39f81e3ebc10a7a7337c73b37d8e0f7b20e7c8c795b6ca8ac677"
+    },
+    {
+      "bytes": 965,
+      "path": "dataset/manifests/gsm8k_agent.json",
+      "sha256": "dc0c558f319e3a69860e16def8fa5004ecbfd9ddf028a1601af8d4caea8f1469"
+    },
+    {
+      "bytes": 17394,
+      "path": "docs/STAGE1_GSM8K_FINAL_REPORT.md",
+      "sha256": "f39af275d1dc9a5c7dd3096ece4fd04afffc519f189c0e9282f71cb5b74d9894"
+    },
+    {
+      "bytes": 26985,
+      "path": "model/model_minimind.py",
+      "sha256": "14faf804a049f11d2b1e6e85d493f84d3d1b024a3b4306a6a0958f7371e28904"
+    },
+    {
+      "bytes": 137684475,
+      "path": "out/agent_sft_768.pth",
+      "sha256": "46741bb4ce8ec4f08a15a1f811a734f59c2df3054a42dce2a0e2c2097343f207"
+    },
+    {
+      "bytes": 275340368,
+      "path": "out/rl_full/cispo/seed_42/gsm8k_cispo_full_s42_768.pth",
+      "sha256": "1408b275f0c5d8f92279b5b378d7bc1572f3a7834762becde762e0ff52f5f0a9"
+    },
+    {
+      "bytes": 275340368,
+      "path": "out/rl_full/cispo/seed_43/gsm8k_cispo_full_s43_768.pth",
+      "sha256": "4c8a8831ac9cba7ba734084146eb88d3926c902f82a0f1b6e0e8c367c4f76800"
+    },
+    {
+      "bytes": 275340368,
+      "path": "out/rl_full/cispo/seed_44/gsm8k_cispo_full_s44_768.pth",
+      "sha256": "dad8d534386f095de9ee94187791ee22292c832185bd05281cbec907b462e0df"
+    },
+    {
+      "bytes": 275340273,
+      "path": "out/rl_full/dapo/seed_42/gsm8k_dapo_full_s42_768.pth",
+      "sha256": "c9d2b1bc83b93ae6f55ddedfd2453e5c9958d3ea6a462c3cca78e820be8aff26"
+    },
+    {
+      "bytes": 275340273,
+      "path": "out/rl_full/dapo/seed_43/gsm8k_dapo_full_s43_768.pth",
+      "sha256": "fb342ba0066c5629c4f4f422a4f98326b10536db176fdc927bab667518a6e7e9"
+    },
+    {
+      "bytes": 275340273,
+      "path": "out/rl_full/dapo/seed_44/gsm8k_dapo_full_s44_768.pth",
+      "sha256": "c115ffb9ca761f094f894f3678588ab00cca88fb80646ec534e03c7b0a1304aa"
+    },
+    {
+      "bytes": 275340273,
+      "path": "out/rl_full/grpo/seed_42/gsm8k_grpo_full_s42_768.pth",
+      "sha256": "9f6c0b3623098dd80713c6a8926818ad718f65d86e18b5d784f2deb444faeee2"
+    },
+    {
+      "bytes": 275340273,
+      "path": "out/rl_full/grpo/seed_43/gsm8k_grpo_full_s43_768.pth",
+      "sha256": "dbb9dc4b2aac93b4c5b2f18f9fceb0e4f31dc61580657980757b7c54bde6e5e2"
+    },
+    {
+      "bytes": 275340273,
+      "path": "out/rl_full/grpo/seed_44/gsm8k_grpo_full_s44_768.pth",
+      "sha256": "9160e5013e9c71c5fe3a853b29c5b7df3fdb1a1fc9ce091481ed52fdb11c0f5f"
+    },
+    {
+      "bytes": 275340273,
+      "path": "out/rl_full/gspo/seed_42/gsm8k_gspo_full_s42_768.pth",
+      "sha256": "d242a95b924822d5dd33cb4dd621e1ccb68dcb4a8854e96b666234827b0584ba"
+    },
+    {
+      "bytes": 275340273,
+      "path": "out/rl_full/gspo/seed_43/gsm8k_gspo_full_s43_768.pth",
+      "sha256": "2fa3395fe9732a7920b6c15cf763f657a4172d6bc0a770be0326b6c4aaf013e2"
+    },
+    {
+      "bytes": 275340273,
+      "path": "out/rl_full/gspo/seed_44/gsm8k_gspo_full_s44_768.pth",
+      "sha256": "4b9d46a377dffa893e2ccb29307cec1522c01c0100cfe0703bae234431f10c4a"
+    },
+    {
+      "bytes": 23863,
+      "path": "scripts/analyze_gsm8k_stage1.py",
+      "sha256": "9ee8eb92f6acbc3e5741ea97593d8cb83e623564f7cc458afbcde5aae2f45bd9"
+    },
+    {
+      "bytes": 13807,
+      "path": "scripts/eval_agent_rlvr.py",
+      "sha256": "b38f31e0e4d9a170d90c307403b86098f33e7f77f21511786765ceb37ea83d21"
+    },
+    {
+      "bytes": 2805,
+      "path": "scripts/run_gsm8k_rl_full.sh",
+      "sha256": "a783488d9318198d351b18894cfc2110cbb1c45a088fb16ec4cba1fbbff31487"
+    },
+    {
+      "bytes": 1779,
+      "path": "scripts/run_gsm8k_stage1_final_test.sh",
+      "sha256": "9e03cc19e7ffcb27e9f0db466e1a0b1ec0b4d3eaeb97fce47ff559ccd3366961"
+    },
+    {
+      "bytes": 4196,
+      "path": "trainer/math_env.py",
+      "sha256": "4fc1f6fcf61094891db8c08819b22a8b5666c1a3a1d8152fb850036725c64c89"
+    },
+    {
+      "bytes": 12499,
+      "path": "trainer/policy_optimization.py",
+      "sha256": "e275f86e44eadc978537dc9c4764fd5fe5de1f72ffd3340fc78f421644e4b5b9"
+    },
+    {
+      "bytes": 14153,
+      "path": "trainer/rollout_engine.py",
+      "sha256": "f4022ad2217ea87e9acaf65db0a827d87398c7e46c25dfcdaa6cb2ef294cc362"
+    },
+    {
+      "bytes": 85427,
+      "path": "trainer/train_agent.py",
+      "sha256": "02bca4c58172a12f841b0db49308a7ff85be6e4f68336f969087999b4ea3644b"
+    }
+  ],
+  "counts": {
+    "formal_rl_checkpoints": 12,
+    "official_test": 1319,
+    "test_decode_trajectories": 15828,
+    "train_rl": 6726,
+    "train_sft": 6637,
+    "validation": 747,
+    "validation_decode_trajectories": 31374
+  },
+  "protocol": {
+    "bootstrap_samples": 20000,
+    "bootstrap_scope": "item-sampling uncertainty; does not replace training-seed variability",
+    "bootstrap_seed": 20261005,
+    "bootstrap_unit": "GSM8K question",
+    "decode_seeds": [
+      42,
+      43,
+      44
+    ],
+    "primary_metric": "strict task_accuracy",
+    "selection_split": "validation",
+    "test_used_for_selection": false,
+    "tie_breakers": [
+      "reward",
+      "answer_accuracy"
+    ],
+    "training_seeds": [
+      42,
+      43,
+      44
+    ],
+    "winner": "dapo"
+  },
+  "test_complete": true,
+  "test_paired": [
+    {
+      "algorithm": "dapo",
+      "baseline": "agent_sft",
+      "bootstrap_samples": 20000,
+      "items": 1319,
+      "paired_item_bootstrap_ci95_high": 0.01718473591104372,
+      "paired_item_bootstrap_ci95_low": 0.005391289697582344,
+      "probability_delta_gt_zero": 0.9999,
+      "question_loss_rate": 0.052312357846853674,
+      "question_tie_rate": 0.7930250189537529,
+      "question_win_rate": 0.15466262319939347,
+      "task_accuracy_delta": 0.011203773902788306,
+      "uncertainty_scope": "paired question sampling; training-seed std reported separately"
+    }
+  ],
+  "test_results": [
+    {
+      "algorithm": "agent_sft",
+      "answer_accuracy_delta_vs_agent_sft": 0.0,
+      "answer_accuracy_mean": 0.025271670892834663,
+      "answer_accuracy_training_seed_std": 0.0,
+      "format_valid_rate_delta_vs_agent_sft": 0.0,
+      "format_valid_rate_mean": 0.9972200989723206,
+      "format_valid_rate_training_seed_std": 0.0,
+      "kl_k3_delta_vs_agent_sft": 0.0,
+      "kl_k3_mean": 0.0,
+      "kl_k3_training_seed_std": 0.0,
+      "kl_reference": "agent_sft",
+      "p95_response_length_delta_vs_agent_sft": 0.0,
+      "p95_response_length_mean": 222.0,
+      "p95_response_length_training_seed_std": 0.0,
+      "required_tool_coverage_rate_delta_vs_agent_sft": 0.0,
+      "required_tool_coverage_rate_mean": 1.0,
+      "required_tool_coverage_rate_training_seed_std": 0.0,
+      "response_length_delta_vs_agent_sft": 0.0,
+      "response_length_mean": 126.19004313151042,
+      "response_length_training_seed_std": 0.0,
+      "reward_delta_vs_agent_sft": 0.0,
+      "reward_mean": -0.9560272892316183,
+      "reward_training_seed_std": 0.0,
+      "task_accuracy_delta_vs_agent_sft": 0.0,
+      "task_accuracy_mean": 0.021986352900664013,
+      "task_accuracy_training_seed_std": 0.0,
+      "tool_call_valid_rate_delta_vs_agent_sft": 0.0,
+      "tool_call_valid_rate_mean": 0.9998736381530762,
+      "tool_call_valid_rate_training_seed_std": 0.0,
+      "tool_evidence_coverage_rate_delta_vs_agent_sft": 0.0,
+      "tool_evidence_coverage_rate_mean": 0.022491786628961563,
+      "tool_evidence_coverage_rate_training_seed_std": 0.0,
+      "tool_execution_success_rate_delta_vs_agent_sft": 0.0,
+      "tool_execution_success_rate_mean": 0.9979142149289449,
+      "tool_execution_success_rate_training_seed_std": 0.0,
+      "training_runs": 1,
+      "unfinished_delta_vs_agent_sft": 0.0,
+      "unfinished_mean": 0.00025271670892834663,
+      "unfinished_training_seed_std": 0.0
+    },
+    {
+      "algorithm": "dapo",
+      "answer_accuracy_delta_vs_agent_sft": 0.01120377373364237,
+      "answer_accuracy_mean": 0.03647544462647703,
+      "answer_accuracy_training_seed_std": 0.003793558330222031,
+      "format_valid_rate_delta_vs_agent_sft": -0.0002527038256326941,
+      "format_valid_rate_mean": 0.9969673951466879,
+      "format_valid_rate_training_seed_std": 0.00110156285651901,
+      "kl_k3_delta_vs_agent_sft": 0.014526542276144028,
+      "kl_k3_mean": 0.014526542276144028,
+      "kl_k3_training_seed_std": 0.0013062827982248846,
+      "kl_reference": "agent_sft",
+      "p95_response_length_delta_vs_agent_sft": -20.633368598090243,
+      "p95_response_length_mean": 201.36663140190976,
+      "p95_response_length_training_seed_std": 13.510544003299374,
+      "required_tool_coverage_rate_delta_vs_agent_sft": -8.424123128258909e-05,
+      "required_tool_coverage_rate_mean": 0.9999157587687174,
+      "required_tool_coverage_rate_training_seed_std": 0.0001459100926735409,
+      "response_length_delta_vs_agent_sft": -11.474853515625,
+      "response_length_mean": 114.71518961588542,
+      "response_length_training_seed_std": 2.053724272327691,
+      "reward_delta_vs_agent_sft": 0.022407538361019608,
+      "reward_mean": -0.9336197508705987,
+      "reward_training_seed_std": 0.006093225047377057,
+      "task_accuracy_delta_vs_agent_sft": 0.01120377435452408,
+      "task_accuracy_mean": 0.03319012725518809,
+      "task_accuracy_training_seed_std": 0.0030466083176703567,
+      "tool_call_valid_rate_delta_vs_agent_sft": -3.790193133879072e-05,
+      "tool_call_valid_rate_mean": 0.9998357362217374,
+      "tool_call_valid_rate_training_seed_std": 0.0001861318341754139,
+      "tool_evidence_coverage_rate_delta_vs_agent_sft": 0.010782579787903361,
+      "tool_evidence_coverage_rate_mean": 0.033274366416864924,
+      "tool_evidence_coverage_rate_training_seed_std": 0.0030361087383303205,
+      "tool_execution_success_rate_delta_vs_agent_sft": 0.0009598003493415108,
+      "tool_execution_success_rate_mean": 0.9988740152782865,
+      "tool_execution_success_rate_training_seed_std": 9.469880370448485e-05,
+      "training_runs": 3,
+      "unfinished_delta_vs_agent_sft": 0.00025271670892834663,
+      "unfinished_mean": 0.0005054334178566933,
+      "unfinished_training_seed_std": 0.0006686255639751016
+    }
+  ],
+  "winner_validation": {
+    "algorithm": "dapo",
+    "answer_accuracy_delta_vs_agent_sft": 0.01100699127548271,
+    "answer_accuracy_mean": 0.031979770917031504,
+    "answer_accuracy_training_seed_std": 0.0034660662425783887,
+    "format_valid_rate_delta_vs_agent_sft": 0.001933660772111656,
+    "format_valid_rate_mean": 0.997471378909217,
+    "format_valid_rate_training_seed_std": 0.00025762537510648677,
+    "kl_k3_delta_vs_agent_sft": "",
+    "kl_k3_mean": 0.014320150742100343,
+    "kl_k3_training_seed_std": 0.0009763768157179119,
+    "kl_reference": "agent_sft",
+    "p95_response_length_delta_vs_agent_sft": -23.588887532552093,
+    "p95_response_length_mean": 196.977783203125,
+    "p95_response_length_training_seed_std": 10.535937161000644,
+    "required_tool_coverage_rate_delta_vs_agent_sft": 0.0007437003983390422,
+    "required_tool_coverage_rate_mean": 0.9998512599203321,
+    "required_tool_coverage_rate_training_seed_std": 0.00025762537510655084,
+    "response_length_delta_vs_agent_sft": -9.813178168402771,
+    "response_length_mean": 114.09757571750218,
+    "response_length_training_seed_std": 1.6802166255197881,
+    "reward_delta_vs_agent_sft": 0.019931574662526486,
+    "reward_mean": -0.9416926900545756,
+    "reward_training_seed_std": 0.007694486238121226,
+    "task_accuracy_delta_vs_agent_sft": 0.009965789400868941,
+    "task_accuracy_mean": 0.02915365145438247,
+    "task_accuracy_training_seed_std": 0.0038472462756748726,
+    "tool_call_valid_rate_delta_vs_agent_sft": 0.0008626845147873263,
+    "tool_call_valid_rate_mean": 0.9998215105798508,
+    "tool_call_valid_rate_training_seed_std": 0.00023611680553543962,
+    "tool_evidence_coverage_rate_delta_vs_agent_sft": 0.009817046423753105,
+    "tool_evidence_coverage_rate_mean": 0.029451138029495876,
+    "tool_evidence_coverage_rate_training_seed_std": 0.004089760384677313,
+    "tool_execution_success_rate_delta_vs_agent_sft": 0.0010286503367954447,
+    "tool_execution_success_rate_mean": 0.9982210927539402,
+    "tool_execution_success_rate_training_seed_std": 0.00038161810206174774,
+    "training_runs": 3,
+    "unfinished_delta_vs_agent_sft": 0.0,
+    "unfinished_mean": 0.0004462293582037091,
+    "unfinished_training_seed_std": 0.0
+  },
+  "winner_validation_paired": {
+    "algorithm": "dapo",
+    "baseline": "agent_sft",
+    "bootstrap_samples": 20000,
+    "items": 747,
+    "paired_item_bootstrap_ci95_high": 0.016807972631265804,
+    "paired_item_bootstrap_ci95_low": 0.002826119291982746,
+    "probability_delta_gt_zero": 0.9963,
+    "question_loss_rate": 0.0428380187416332,
+    "question_tie_rate": 0.8045515394912985,
+    "question_win_rate": 0.15261044176706828,
+    "task_accuracy_delta": 0.009965789082254945,
+    "uncertainty_scope": "paired question sampling; training-seed std reported separately"
+  }
+}

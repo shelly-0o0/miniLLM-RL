@@ -1,6 +1,13 @@
 import importlib.util
 import pathlib
 import unittest
+import json
+import tempfile
+from pathlib import Path
+
+from transformers import AutoTokenizer
+
+from dataset.lm_dataset import SFTDataset
 
 
 MODULE_PATH = pathlib.Path(__file__).parents[1] / "scripts" / "prepare_agent_sft_data.py"
@@ -10,6 +17,24 @@ SPEC.loader.exec_module(MODULE)
 
 
 class AgentSFTDataTests(unittest.TestCase):
+    def test_sft_dataset_accepts_top_level_audit_metadata(self):
+        tokenizer = AutoTokenizer.from_pretrained("model")
+        row = {
+            "id": "audit-id",
+            "source_split": "train",
+            "conversations": [
+                {"role": "user", "content": "2+2?"},
+                {"role": "assistant", "content": "Final answer: 4", "reasoning_content": ""},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sft.jsonl"
+            path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            dataset = SFTDataset(str(path), tokenizer, max_length=64)
+            input_ids, labels = dataset[0]
+            self.assertEqual(tuple(input_ids.shape), (64,))
+            self.assertTrue(labels.ne(-100).any())
+
     def test_balanced_limit_is_deterministic_and_category_balanced(self):
         rows = [
             {"id": f"{category}-{index}", "rlvr_category": category}

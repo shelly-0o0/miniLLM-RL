@@ -1,0 +1,192 @@
+{
+  "status": "COMPLETE",
+  "scope": "Confidence intervals treat the 1,319 official-test questions as the sampling unit. They do not quantify variation across training seeds; all models use one training/decode seed (42).",
+  "data_sha256": "b1cccea67994ea00b02a5eb61d4915a2ed45de1d09a3259b5df672687d451159",
+  "labels": [
+    "base",
+    "agent_sft_a",
+    "grpo_a_seen",
+    "grpo_b_new_data",
+    "additional_sft_b"
+  ],
+  "num_paired_questions": 1319,
+  "bootstrap_samples": 20000,
+  "arms": [
+    {
+      "label": "base",
+      "num_trajectories": 1319,
+      "task_successes": 0,
+      "task_accuracy": 0.0,
+      "task_accuracy_wilson_95": [
+        0.0,
+        0.002903944985303654
+      ],
+      "answer_accuracy": 0.04245640636846096,
+      "format_valid_rate": 0.0,
+      "tool_call_valid_rate": 0.0,
+      "tool_execution_success_rate": 0.0,
+      "required_tool_coverage_rate": 0.0,
+      "tool_evidence_coverage_rate": 0.0,
+      "unfinished_rate": 0.0,
+      "avg_response_tokens": 384.0
+    },
+    {
+      "label": "agent_sft_a",
+      "num_trajectories": 1319,
+      "task_successes": 12,
+      "task_accuracy": 0.009097801364670205,
+      "task_accuracy_wilson_95": [
+        0.0052119179600279095,
+        0.015834790725315705
+      ],
+      "answer_accuracy": 0.11372251705837756,
+      "format_valid_rate": 0.08567096285064443,
+      "tool_call_valid_rate": 0.3866565579984837,
+      "tool_execution_success_rate": 0.3866565579984837,
+      "required_tool_coverage_rate": 0.3866565579984837,
+      "tool_evidence_coverage_rate": 0.05079605761940864,
+      "unfinished_rate": 0.0,
+      "avg_response_tokens": 52.875663381349504
+    },
+    {
+      "label": "grpo_a_seen",
+      "num_trajectories": 1319,
+      "task_successes": 34,
+      "task_accuracy": 0.02577710386656558,
+      "task_accuracy_wilson_95": [
+        0.01850423894804718,
+        0.035804203187369696
+      ],
+      "answer_accuracy": 0.14935557240333586,
+      "format_valid_rate": 0.09021986353297953,
+      "tool_call_valid_rate": 0.4291129643669447,
+      "tool_execution_success_rate": 0.42835481425322214,
+      "required_tool_coverage_rate": 0.42835481425322214,
+      "tool_evidence_coverage_rate": 0.07808946171341925,
+      "unfinished_rate": 0.0,
+      "avg_response_tokens": 60.73995451099318
+    },
+    {
+      "label": "grpo_b_new_data",
+      "num_trajectories": 1319,
+      "task_successes": 35,
+      "task_accuracy": 0.026535253980288095,
+      "task_accuracy_wilson_95": [
+        0.019140757620246578,
+        0.03667958149017363
+      ],
+      "answer_accuracy": 0.16906747536012132,
+      "format_valid_rate": 0.09552691432903715,
+      "tool_call_valid_rate": 0.4564063684609553,
+      "tool_execution_success_rate": 0.45602729340409404,
+      "required_tool_coverage_rate": 0.4564063684609553,
+      "tool_evidence_coverage_rate": 0.08567096285064443,
+      "unfinished_rate": 0.0,
+      "avg_response_tokens": 59.432903714935556
+    },
+    {
+      "label": "additional_sft_b",
+      "num_trajectories": 1319,
+      "task_successes": 561,
+      "task_accuracy": 0.42532221379833207,
+      "task_accuracy_wilson_95": [
+        0.3988962769000468,
+        0.45218187106212504
+      ],
+      "answer_accuracy": 0.4829416224412434,
+      "format_valid_rate": 0.9719484457922669,
+      "tool_call_valid_rate": 0.9924184988627748,
+      "tool_execution_success_rate": 0.9903967652563076,
+      "required_tool_coverage_rate": 0.9916603487490523,
+      "tool_evidence_coverage_rate": 0.4397270659590599,
+      "unfinished_rate": 0.0,
+      "avg_response_tokens": 80.2994692949204
+    }
+  ],
+  "pairwise": [
+    {
+      "treatment": "agent_sft_a",
+      "control": "base",
+      "task_accuracy_delta": 0.009097801364670205,
+      "paired_bootstrap_delta_95": [
+        0.004548900682335102,
+        0.014404852160727824
+      ],
+      "treatment_only_success": 12,
+      "control_only_success": 0,
+      "both_success": 0,
+      "both_failure": 1307,
+      "mcnemar_exact_two_sided_p": 0.0004882812500000003
+    },
+    {
+      "treatment": "grpo_a_seen",
+      "control": "agent_sft_a",
+      "task_accuracy_delta": 0.016679302501895373,
+      "paired_bootstrap_delta_95": [
+        0.006823351023502654,
+        0.026535253980288095
+      ],
+      "treatment_only_success": 34,
+      "control_only_success": 12,
+      "both_success": 0,
+      "both_failure": 1273,
+      "mcnemar_exact_two_sided_p": 0.0016414913408482443
+    },
+    {
+      "treatment": "grpo_b_new_data",
+      "control": "agent_sft_a",
+      "task_accuracy_delta": 0.01743745261561789,
+      "paired_bootstrap_delta_95": [
+        0.0075815011372251705,
+        0.027293404094010616
+      ],
+      "treatment_only_success": 34,
+      "control_only_success": 11,
+      "both_success": 1,
+      "both_failure": 1273,
+      "mcnemar_exact_two_sided_p": 0.000824082359599744
+    },
+    {
+      "treatment": "grpo_b_new_data",
+      "control": "grpo_a_seen",
+      "task_accuracy_delta": 0.0007581501137225166,
+      "paired_bootstrap_delta_95": [
+        -0.01061410159211524,
+        0.012130401819560273
+      ],
+      "treatment_only_success": 31,
+      "control_only_success": 30,
+      "both_success": 4,
+      "both_failure": 1254,
+      "mcnemar_exact_two_sided_p": 1.0
+    },
+    {
+      "treatment": "additional_sft_b",
+      "control": "agent_sft_a",
+      "task_accuracy_delta": 0.4162244124336619,
+      "paired_bootstrap_delta_95": [
+        0.38968915845337376,
+        0.44275966641395
+      ],
+      "treatment_only_success": 552,
+      "control_only_success": 3,
+      "both_success": 9,
+      "both_failure": 755,
+      "mcnemar_exact_two_sided_p": 4.8318914147317147e-160
+    },
+    {
+      "treatment": "grpo_b_new_data",
+      "control": "additional_sft_b",
+      "task_accuracy_delta": -0.39878695981804396,
+      "paired_bootstrap_delta_95": [
+        -0.42608036391205456,
+        -0.3707354056103108
+      ],
+      "treatment_only_success": 16,
+      "control_only_success": 542,
+      "both_success": 19,
+      "both_failure": 742,
+      "mcnemar_exact_two_sided_p": 7.421812298938166e-138
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "dataset": "openai/gsm8k",
+  "config": "main",
+  "protocol": "track2_disjoint_ab_agentic_rl",
+  "split_seed": 42,
+  "probe_seed": 31415,
+  "probe_size": 128,
+  "policy": "official train is partitioned into mutually exclusive A/B pools; official test is evaluation-only; probe rows remain members of their training pools and are diagnostics, not a holdout",
+  "source": {
+    "official_train": {
+      "path": "data/raw/gsm8k/official_train.jsonl",
+      "rows": 7473,
+      "sha256": "05d1b20712cfb62aacad5602ade76cda8a4306f92fabfc9cb6999d25963c8011"
+    },
+    "official_test": {
+      "path": "data/raw/gsm8k/official_test.jsonl",
+      "rows": 1319,
+      "sha256": "c50997ef5b57cd26023899d36a4cc8f39742e0fb8bde119eea7cd476aa2d7815"
+    }
+  },
+  "files": {
+    "a_source": {
+      "path": "data/processed/gsm8k_track2/a_source.jsonl",
+      "rows": 3736,
+      "sha256": "dc0f84ca5c6a390657f009b014d33b5f7c27a07bed1bff0858d80ca21b0a0485"
+    },
+    "b_source": {
+      "path": "data/processed/gsm8k_track2/b_source.jsonl",
+      "rows": 3737,
+      "sha256": "0acf2d791278fa29704b1ef53179399f9f9491e1e2b62dddecb8e2a346f863ec"
+    },
+    "test_source": {
+      "path": "data/processed/gsm8k_track2/test_source.jsonl",
+      "rows": 1319,
+      "sha256": "5be5d10cbec9559c74ab07d4236f865dc3c474d13bcbfb1e29ba322a71d8f755"
+    },
+    "a_rl": {
+      "path": "data/processed/gsm8k_track2/a_rl.jsonl",
+      "rows": 3736,
+      "sha256": "40fb4f997b1007b821c4301387af5f20644012ae430336e3c108187db966db18"
+    },
+    "b_rl": {
+      "path": "data/processed/gsm8k_track2/b_rl.jsonl",
+      "rows": 3737,
+      "sha256": "bca60121f0dc5077e6ac11c49699d6aa2c61c11a4a7e078e43d4ad22fa9e51df"
+    },
+    "a_sft": {
+      "path": "data/processed/gsm8k_track2/a_sft.jsonl",
+      "rows": 3692,
+      "sha256": "a80c0c1c0be7ecfb076ad5ad6e998884a997a1e1f654eae56511359498af2dd5"
+    },
+    "b_sft": {
+      "path": "data/processed/gsm8k_track2/b_sft.jsonl",
+      "rows": 3686,
+      "sha256": "300a1ee3c83483752c5c60518f966a16481cface313d44d7ed32922d7d712344"
+    },
+    "a_compare_rl": {
+      "path": "data/processed/gsm8k_track2/a_compare_rl.jsonl",
+      "rows": 3686,
+      "sha256": "980473eb565b04610b94c12a33730ea938a699c3ff6d887be1087a2dc5e0ff37"
+    },
+    "b_compare_rl": {
+      "path": "data/processed/gsm8k_track2/b_compare_rl.jsonl",
+      "rows": 3686,
+      "sha256": "761e7c61da2088df6946541100eec74f603d54a6a2c0454e0668628cdb9e2845"
+    },
+    "a_probe_rl": {
+      "path": "data/processed/gsm8k_track2/a_probe_rl.jsonl",
+      "rows": 128,
+      "sha256": "4a9cbb538cdc0581cdb9e0f79dd8593827ba0d2c058865ffb6ca3e19b8023c8d"
+    },
+    "b_probe_rl": {
+      "path": "data/processed/gsm8k_track2/b_probe_rl.jsonl",
+      "rows": 128,
+      "sha256": "1df7218791932fd35a553192b54a1e434f8b5592f64fd4993c6e1445d36be817"
+    },
+    "test_rl": {
+      "path": "data/processed/gsm8k_track2/test_rl.jsonl",
+      "rows": 1319,
+      "sha256": "b1cccea67994ea00b02a5eb61d4915a2ed45de1d09a3259b5df672687d451159"
+    }
+  }
+}

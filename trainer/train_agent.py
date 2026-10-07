@@ -5,7 +5,6 @@ __package__ = "trainer"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import datasets  # noqa: F401  # Windows pyarrow/torch DLL conflict workaround (issue #771)
-import ast
 import re
 import gc
 import json
@@ -41,6 +40,8 @@ from trainer.policy_optimization import (
     soft_overlong_penalty,
 )
 from trainer.experiment_logging import JsonlMetricLogger
+from trainer.math_env import safe_calculate as shared_safe_calculate
+from trainer.agent_chat import render_agent_chat, resolve_agent_open_thinking
 
 warnings.filterwarnings('ignore')
 
@@ -55,6 +56,7 @@ class VerifiableRewardOutput:
     tool_execution_success: torch.Tensor
     required_tool_coverage: torch.Tensor
     tool_evidence_coverage: torch.Tensor
+    protocol_progress: torch.Tensor
 
 
 _CHECKPOINT_DTYPES = {
@@ -122,62 +124,10 @@ EXCHANGE_DATA = {("USD", "CNY"): 7.21, ("EUR", "CNY"): 7.85, ("GBP", "CNY"): 9.1
 TRANSLATE_DATA = {("你好世界", "english"): "Hello World", ("Good morning", "chinese"): "早上好", ("今天天气真好", "english"): "The weather is nice today", ("I love programming", "chinese"): "我喜欢编程", ("机器学习很有趣", "english"): "Machine learning is interesting", ("Happy birthday", "chinese"): "生日快乐"}
 UNIT_DATA = {"km_miles": 0.621371, "miles_km": 1.60934, "kg_pounds": 2.20462, "pounds_kg": 0.453592, "meters_feet": 3.28084, "feet_meters": 0.3048, "celsius_fahrenheit": 1.8, "fahrenheit_celsius": 0.5556}
 
-# ======== 安全的确定性算术执行 ========
-_BINARY_OPERATORS = {
-    ast.Add: lambda left, right: left + right,
-    ast.Sub: lambda left, right: left - right,
-    ast.Mult: lambda left, right: left * right,
-    ast.Div: lambda left, right: left / right,
-    ast.FloorDiv: lambda left, right: left // right,
-    ast.Mod: lambda left, right: left % right,
-    ast.Pow: lambda left, right: left ** right,
-}
-_UNARY_OPERATORS = {ast.UAdd: lambda value: value, ast.USub: lambda value: -value}
-
-
 def safe_calculate_math(args):
-    """Evaluate a small arithmetic grammar without executing model text.
+    """Backward-compatible entry point backed by the shared math environment."""
 
-    Emptying ``__builtins__`` around Python ``eval`` is not a security
-    boundary: object traversal and resource-exhaustion payloads remain
-    possible.  The RL environment instead admits only numeric constants and
-    explicit arithmetic nodes, with conservative length/exponent/magnitude
-    limits.  Production tools should still run in an isolated process with
-    OS-level CPU/memory/time limits.
-    """
-
-    expression = str(args.get("expression", "")).strip()
-    expression = (expression.replace("^", "**").replace("×", "*")
-                  .replace("÷", "/").replace("−", "-")
-                  .replace("（", "(").replace("）", ")"))
-    if not expression or len(expression) > 256:
-        raise ValueError("empty or overlong expression")
-    tree = ast.parse(expression, mode="eval")
-
-    def evaluate(node, depth=0):
-        if depth > 32:
-            raise ValueError("expression is too deeply nested")
-        if isinstance(node, ast.Expression):
-            return evaluate(node.body, depth + 1)
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
-            value = node.value
-        elif isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPERATORS:
-            value = _UNARY_OPERATORS[type(node.op)](evaluate(node.operand, depth + 1))
-        elif isinstance(node, ast.BinOp) and type(node.op) in _BINARY_OPERATORS:
-            left, right = evaluate(node.left, depth + 1), evaluate(node.right, depth + 1)
-            if isinstance(node.op, ast.Pow) and abs(right) > 12:
-                raise ValueError("exponent exceeds safety limit")
-            value = _BINARY_OPERATORS[type(node.op)](left, right)
-        else:
-            raise ValueError(f"unsupported arithmetic node: {type(node).__name__}")
-        if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or abs(value) > 1e15:
-            raise ValueError("non-finite or oversized result")
-        return value
-
-    value = evaluate(tree)
-    if isinstance(value, float) and value.is_integer():
-        value = int(value)
-    return {"result": str(value)}
+    return shared_safe_calculate(args)
 
 
 # ======== 模拟执行 ========
@@ -204,11 +154,106 @@ CHECK_ARGS = {
 def parse_tool_calls(text):
     calls = []
     for m in re.findall(r'<tool_call>(.*?)</tool_call>', text, re.DOTALL):
-        try: calls.append(json.loads(m.strip()))
-        except: pass
+        try:
+            value = json.loads(m.strip())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            calls.append(value)
     return calls
 
+
+def parse_json_tool_candidates(text):
+    """Extract JSON tool-shaped objects even when protocol tags are missing.
+
+    These candidates are never executed as environment actions and never count
+    toward strict success.  They only expose a dense curriculum signal for a
+    base policy that already emits the advertised JSON schema but has not yet
+    learned the ``<tool_call>`` wrapper.
+    """
+
+    decoder = json.JSONDecoder()
+    candidates = []
+    cursor = 0
+    raw = str(text)
+    while cursor < len(raw):
+        start = raw.find("{", cursor)
+        if start < 0:
+            break
+        try:
+            value, consumed = decoder.raw_decode(raw[start:])
+        except json.JSONDecodeError:
+            cursor = start + 1
+            continue
+        cursor = start + max(consumed, 1)
+        if (
+            isinstance(value, dict)
+            and isinstance(value.get("name"), str)
+            and "arguments" in value
+        ):
+            candidates.append(value)
+    return candidates
+
+
+def protocol_progress_score(
+    turn_answers, valid_names, required_names, ground_truth
+):
+    """Score bounded, non-authoritative progress toward an executable call.
+
+    The maximum over candidates prevents repetition from increasing reward.
+    Strict metrics still require tagged calls that were actually passed through
+    the environment; this score cannot make a trajectory successful.
+    """
+
+    text = "\n".join(map(str, turn_answers))
+    marker_score = 0.125 * int("<tool_call>" in text)
+    marker_score += 0.125 * int("</tool_call>" in text)
+    best = 0.0
+    for candidate in parse_json_tool_candidates(text):
+        name = candidate.get("name")
+        raw_args = candidate.get("arguments")
+        if isinstance(raw_args, str):
+            try:
+                raw_args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                raw_args = None
+        score = 0.25  # JSON has the required top-level keys and name type.
+        recognized = name in valid_names
+        score += 0.25 * int(recognized)
+        checker = CHECK_ARGS.get(name) if recognized else None
+        arguments_valid = bool(
+            isinstance(raw_args, dict) and checker and checker(raw_args)
+        )
+        score += 0.25 * int(arguments_valid)
+        score += 0.25 * int(name in required_names)
+        result = execute_tool(name, raw_args) if arguments_valid else None
+        score += 0.25 * int(result is not None)
+        if result is not None and ground_truth:
+            evidence = validate_gt_in_text(
+                json.dumps(result, ensure_ascii=False),
+                ground_truth,
+                final_answer_only=False,
+            )
+            score += 0.5 * (len(evidence) / len(ground_truth))
+        best = max(best, score)
+    # Give a very small gradient to an incomplete JSON skeleton, but keep it
+    # below every parseable candidate and independent of repetition count.
+    if not best:
+        skeleton = 0.1 * int(bool(re.search(r'["\']name["\']\s*:', text)))
+        skeleton += 0.1 * int(
+            bool(re.search(r'["\']arguments["\']\s*:', text))
+        )
+        skeleton += 0.1 * int(any(name in text for name in required_names))
+        best = min(skeleton, 0.3)
+    return marker_score + best
+
 def execute_tool(name, args):
+    # Tool calls are sampled model output, so neither field can be trusted to
+    # have the schema advertised in the prompt.  In particular, JSON such as
+    # {"name": {"tool": "calculate_math"}, ...} must be scored as an invalid
+    # call instead of being used as an unhashable dictionary key.
+    if not isinstance(name, str) or not isinstance(args, dict):
+        return None
     fn = MOCK_RESULTS.get(name)
     if not fn: return None
     try:
@@ -280,6 +325,8 @@ def rollout_single(
     top_k=0,
     top_p=1.0,
     device="cuda",
+    requested_open_thinking=None,
+    first_turn_sample=None,
 ):
     all_outputs = []
     prompt_ids = None
@@ -290,10 +337,21 @@ def rollout_single(
     unfinished = False
     stop_reason = "max_turns"
     trace = {"turns": [], "stop_reason": stop_reason}
-    open_thinking = random.random() < thinking_ratio
+    if requested_open_thinking is None:
+        requested_open_thinking = random.random() < thinking_ratio
+    else:
+        requested_open_thinking = bool(requested_open_thinking)
     actual_context_ids = None
     for turn in range(max_turns):
-        context = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, tools=tools, open_thinking=open_thinking)
+        open_thinking = resolve_agent_open_thinking(
+            tokenizer,
+            messages,
+            requested_open_thinking=requested_open_thinking,
+        )
+        context = render_agent_chat(
+            tokenizer, messages, tools=tools, tokenize=False,
+            add_generation_prompt=True, open_thinking=open_thinking,
+        )
         canonical_context_ids = tokenizer(
             context, add_special_tokens=False
         ).input_ids
@@ -308,21 +366,27 @@ def rollout_single(
             "input_ids": torch.tensor([actual_context_ids], dtype=torch.long, device=device),
             "attention_mask": torch.ones((1, len(actual_context_ids)), dtype=torch.long, device=device),
         }
-        rollout_result = rollout_engine.rollout(
-            prompt_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-            num_generations=1,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-        )
-        new_ids = rollout_result.completion_ids[0].tolist()
-        new_logps = rollout_result.per_token_logps[0].tolist()
+        if turn == 0 and first_turn_sample is not None:
+            new_ids, new_logps, completion_mask = first_turn_sample
+            new_ids = list(new_ids)
+            new_logps = list(new_logps)
+            completion_mask = list(completion_mask)
+        else:
+            rollout_result = rollout_engine.rollout(
+                prompt_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                num_generations=1,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
+            new_ids = rollout_result.completion_ids[0].tolist()
+            new_logps = rollout_result.per_token_logps[0].tolist()
+            completion_mask = rollout_result.completion_mask[0].tolist()
         if len(new_ids) != len(new_logps): Logger(f"rollout token/logprob length mismatch: {len(new_ids)} vs {len(new_logps)}")
         # EOS is a policy action (the stopping decision) and must remain in the
         # action/log-probability stream.  Only right-padding is removed.
-        completion_mask = rollout_result.completion_mask[0].tolist()
         pairs = [(t, lp) for t, lp, keep in zip(new_ids, new_logps, completion_mask) if keep]
         new_ids = [t for t, _ in pairs]
         new_logps = [lp for _, lp in pairs]
@@ -340,6 +404,7 @@ def rollout_single(
         calls = parse_tool_calls(new_text)
         turn_trace = {
             "turn": turn,
+            "open_thinking": open_thinking,
             "action": {"text": new_text, "token_ids": new_ids, "tool_calls": calls},
             "observation": [],
             "stop_reason": "final_answer" if not calls else "tool_call",
@@ -375,7 +440,15 @@ def rollout_single(
             messages.append({"role": "tool", "content": result_str})
 
         previous_observation_count = context.count("<tool_response>")
-        observe_context = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=not unfinished, tools=tools, open_thinking=open_thinking)
+        next_open_thinking = resolve_agent_open_thinking(
+            tokenizer,
+            messages,
+            requested_open_thinking=requested_open_thinking,
+        )
+        observe_context = render_agent_chat(
+            tokenizer, messages, tools=tools, tokenize=False,
+            add_generation_prompt=not unfinished, open_thinking=next_open_thinking,
+        )
         observe_ids = tokenizer(observe_context, return_tensors="pt", add_special_tokens=False)["input_ids"][0].tolist()
         obs_delta = extract_observation_suffix(
             tokenizer, observe_context, observe_ids, previous_observation_count
@@ -422,11 +495,64 @@ def rollout_batch(
     all_unfinished = []
     all_traces = []
     for messages, tools in zip(messages_batch, tools_batch):
-        for _ in range(num_gen):
+        # Every trajectory in a GRPO group starts from the same prompt.  Generate
+        # that first assistant turn as one GPU batch; only trajectories that
+        # actually call a tool need independent continuation turns.  This keeps
+        # the exact sampled-token/action-mask ledger while avoiding G serial
+        # prefill/decode passes for the common first turn.
+        batched_first_turn = num_gen > 1 and thinking_ratio in (0.0, 1.0)
+        first_turn_samples = [None] * num_gen
+        requested_open_thinking = None
+        if batched_first_turn:
+            requested_open_thinking = bool(thinking_ratio)
+            open_thinking = resolve_agent_open_thinking(
+                tokenizer,
+                messages,
+                requested_open_thinking=requested_open_thinking,
+            )
+            first_context = render_agent_chat(
+                tokenizer,
+                messages,
+                tools=tools,
+                tokenize=False,
+                add_generation_prompt=True,
+                open_thinking=open_thinking,
+            )
+            first_ids = tokenizer(
+                first_context, add_special_tokens=False
+            ).input_ids
+            first_input = torch.tensor(
+                [first_ids], dtype=torch.long, device=device
+            )
+            first_result = rollout_engine.rollout(
+                prompt_ids=first_input,
+                attention_mask=torch.ones_like(first_input),
+                num_generations=num_gen,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
+            if first_result.completion_ids.size(0) != num_gen:
+                raise RuntimeError(
+                    "batched rollout returned a different number of generations"
+                )
+            first_turn_samples = [
+                (
+                    first_result.completion_ids[index].tolist(),
+                    first_result.per_token_logps[index].tolist(),
+                    first_result.completion_mask[index].tolist(),
+                )
+                for index in range(num_gen)
+            ]
+
+        for generation_index in range(num_gen):
             msgs_copy = [dict(m) for m in messages]
             completion, context, prompt_ids, response_ids, response_mask, response_old_logps, turn_outputs, unfinished, trace = rollout_single(
                 rollout_engine, tokenizer, msgs_copy, tools, max_turns,
                 max_new_tokens, thinking_ratio, temperature, top_k, top_p, device,
+                requested_open_thinking=requested_open_thinking,
+                first_turn_sample=first_turn_samples[generation_index],
             )
             all_completions.append(completion)
             all_contexts.append(context)
@@ -556,6 +682,7 @@ def calculate_rewards(
     tool_execution_success = torch.zeros(size, device=device)
     required_tool_coverage = torch.zeros(size, device=device)
     tool_evidence_coverage = torch.zeros(size, device=device)
+    protocol_progress = torch.zeros(size, device=device)
 
     for idx, response in enumerate(completions):
         reward, answer = 0.0, response
@@ -568,14 +695,29 @@ def calculate_rewards(
         turn_answers = [turn.split('</think>', 1)[-1].strip() if '</think>' in turn else turn.strip() for turn in turn_outputs]
         answer = turn_answers[-1] if turn_answers else response.strip()
         valid_names = {t['function']['name'] for t in tools} if tools else set()
+        calls_required = bool(require_tool_call_for_success and tools)
         open_tags = sum(turn.count('<tool_call>') for turn in turn_answers)
         close_tags = sum(turn.count('</tool_call>') for turn in turn_answers)
         tool_calls = []
         for turn_answer in turn_answers:
             tool_calls.extend(parse_tool_calls(turn_answer))
-        tags_valid = open_tags == close_tags == len(tool_calls)
+        tags_balanced = open_tags == close_tags == len(tool_calls)
+        tags_valid = bool(tags_balanced and (tool_calls or not calls_required))
         format_valid[idx] = float(tags_valid)
-        reward += 0.25 if tags_valid else -0.5 * abs(open_tags - close_tags)
+        # A merely balanced count is insufficient: nested/empty/repeated tags
+        # can have open_tags == close_tags while only a subset parses as JSON.
+        # Penalize every discrepancy against the number of executable call
+        # candidates, with a non-zero floor for a required but absent call.
+        format_error_count = (
+            abs(open_tags - close_tags)
+            + abs(open_tags - len(tool_calls))
+            + abs(close_tags - len(tool_calls))
+        )
+        reward += (
+            0.25
+            if tags_valid
+            else -0.5 * max(1, format_error_count)
+        )
 
         valid_call_count = 0
         executed_call_count = 0
@@ -588,8 +730,14 @@ def calculate_rewards(
                     raw = json.loads(raw)
                 except Exception:
                     raw = {}
-            check = CHECK_ARGS.get(name)
-            is_valid = bool(name in valid_names and check and check(raw))
+            check = CHECK_ARGS.get(name) if isinstance(name, str) else None
+            is_valid = bool(
+                isinstance(name, str)
+                and isinstance(raw, dict)
+                and name in valid_names
+                and check
+                and check(raw)
+            )
             valid_call_count += int(is_valid)
             execution_result = execute_tool(name, raw) if is_valid else None
             executed = execution_result is not None
@@ -612,6 +760,13 @@ def calculate_rewards(
         ) if gt and executed_results else set()
         evidence_coverage = len(verified_by_tools) / len(gt) if gt else 0.0
         tool_evidence_coverage[idx] = evidence_coverage
+
+        progress_score = protocol_progress_score(
+            turn_answers, valid_names, required_names, gt
+        )
+        protocol_progress[idx] = progress_score
+        if reward_mode == "shaped" and not tool_calls:
+            reward += progress_score
 
         # The final answer is the text after the last tool-call tag.  It is
         # ignored when max_turns was exhausted because the trajectory is open.
@@ -657,7 +812,6 @@ def calculate_rewards(
             reward -= 0.25 * len(executed_valid_names - required_names)
 
         reward -= rep_penalty(final_text if final_text else answer)
-        calls_required = bool(require_tool_call_for_success and tools)
         calls_satisfied = (
             required_names.issubset(executed_valid_names)
             if required_names else (not calls_required or bool(tool_calls))
@@ -677,7 +831,12 @@ def calculate_rewards(
         if reward_mode == "strict":
             rewards[idx] = 1.0 if task_success[idx] else -1.0
         elif reward_mode == "shaped":
-            rewards[idx] = max(min(reward, 3.0), -3.0)
+            # Keep a strictly valid, grounded trajectory above near-miss
+            # trajectories. A +/-3 clamp previously collapsed both into the
+            # same ceiling and removed the curriculum gradient for repairing
+            # malformed duplicate tags.
+            reward += 2.0 * float(task_success[idx])
+            rewards[idx] = max(min(reward, 6.0), -6.0)
         else:
             raise ValueError(f"unsupported reward_mode={reward_mode!r}")
 
@@ -690,6 +849,7 @@ def calculate_rewards(
         tool_execution_success=tool_execution_success,
         required_tool_coverage=required_tool_coverage,
         tool_evidence_coverage=tool_evidence_coverage,
+        protocol_progress=protocol_progress,
     )
     return output if return_details else rewards
 
@@ -721,6 +881,7 @@ def _rollout_group_records(messages_batch, tools_batch, required_tools_batch, gt
             "tool_execution_success": reward_output.tool_execution_success[start:end],
             "required_tool_coverage": reward_output.required_tool_coverage[start:end],
             "tool_evidence_coverage": reward_output.tool_evidence_coverage[start:end],
+            "protocol_progress": reward_output.protocol_progress[start:end],
         })
     return records
 
@@ -740,6 +901,7 @@ def _merge_rollout_group_records(records):
         tool_execution_success=torch.cat([record["tool_execution_success"] for record in records]),
         required_tool_coverage=torch.cat([record["required_tool_coverage"] for record in records]),
         tool_evidence_coverage=torch.cat([record["tool_evidence_coverage"] for record in records]),
+        protocol_progress=torch.cat([record["protocol_progress"] for record in records]),
     )
     return (
         [record["message"] for record in records],
@@ -783,13 +945,15 @@ def rl_train_epoch(
     budget_stop_reason = "candidate_pool_exhausted"
     for candidate_step, batch in enumerate(loader, start=candidate_start + 1):
         if update_step >= target_updates or (
-            args.max_effective_groups > 0
-            and effective_groups >= args.max_effective_groups
-        ) or (
-            args.max_generated_tokens > 0
-            and candidate_action_tokens >= args.max_generated_tokens
+            args.max_effective_groups > 0 and effective_groups >= args.max_effective_groups
         ):
             budget_stop_reason = "effective_group_target"
+            break
+        if args.max_candidate_groups > 0 and candidate_groups >= args.max_candidate_groups:
+            budget_stop_reason = "max_candidate_groups"
+            break
+        if args.max_generated_tokens > 0 and candidate_action_tokens >= args.max_generated_tokens:
+            budget_stop_reason = "max_generated_tokens"
             break
         candidate_messages = batch['messages']
         candidate_tools = batch['tools']
@@ -808,7 +972,10 @@ def rl_train_epoch(
         (candidate_completions, _, _, _, candidate_response_masks, _,
          candidate_turn_outputs, candidate_unfinished, _) = rollout_values
         candidate_prompts = [
-            tokenizer.apply_chat_template(m, tokenize=False, add_generation_prompt=True, tools=t)
+            render_agent_chat(
+                tokenizer, m, tools=t, tokenize=False,
+                add_generation_prompt=True, open_thinking=False,
+            )
             for m, t in zip(candidate_messages, candidate_tools)
         ]
         reward_output = calculate_rewards(
@@ -1063,6 +1230,7 @@ def rl_train_epoch(
                 "tool_execution_success_rate": reward_output.tool_execution_success.mean().item(),
                 "required_tool_coverage_rate": reward_output.required_tool_coverage.mean().item(),
                 "tool_evidence_coverage_rate": reward_output.tool_evidence_coverage.mean().item(),
+                "protocol_progress": reward_output.protocol_progress.mean().item(),
                 "kl_k3": policy_output.approx_kl.item(),
                 "local_reference_log_ratio_abs_mean": (
                     reference_log_ratio.abs().mean().item()
@@ -1136,7 +1304,7 @@ def rl_train_epoch(
                 lm_checkpoint(
                     lm_config, weight=args.save_weight, model=model, optimizer=optimizer,
                     epoch=epoch, step=update_step, wandb=wandb,
-                    save_dir='../checkpoints', scheduler=scheduler,
+                    save_dir=args.checkpoint_dir, scheduler=scheduler,
                     candidate_step=candidate_step,
                 )
             model.train()
@@ -1150,6 +1318,8 @@ def rl_train_epoch(
         args.max_effective_groups > 0 and effective_groups >= args.max_effective_groups
     ):
         budget_stop_reason = "effective_group_target"
+    elif args.max_candidate_groups > 0 and candidate_groups >= args.max_candidate_groups:
+        budget_stop_reason = "max_candidate_groups"
     elif args.max_generated_tokens > 0 and candidate_action_tokens >= args.max_generated_tokens:
         budget_stop_reason = "max_generated_tokens"
     if is_main_process():
@@ -1162,7 +1332,9 @@ def rl_train_epoch(
             "candidate_action_tokens": candidate_action_tokens,
             "generated_tokens": candidate_action_tokens,
             "optimizer_updates": int(scheduler.last_epoch),
-            "budget_complete": budget_stop_reason == "effective_group_target",
+            "budget_complete": budget_stop_reason in {
+                "effective_group_target", "max_candidate_groups", "candidate_pool_exhausted"
+            },
         }, step=epoch * max(target_updates, 1) + update_step)
     if optimization_micro_step and optimization_micro_step % args.accumulation_steps != 0:
         if args.grad_clip > 0:
@@ -1184,6 +1356,7 @@ def rl_train_epoch(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MiniMind Agent RL")
     parser.add_argument("--save_dir", type=str, default="../out", help="模型保存目录")
+    parser.add_argument("--checkpoint_dir", type=str, default="../checkpoints", help="断点恢复文件目录")
     parser.add_argument('--save_weight', default='agent', type=str, help="保存权重名称")
     parser.add_argument("--epochs", type=int, default=1, help="训练轮数")
     parser.add_argument("--batch_size", type=int, default=2, help="批次大小")
@@ -1206,6 +1379,10 @@ if __name__ == "__main__":
         help="是否同时保存包含Adam/scheduler的断点；短程消融可设0以节省磁盘",
     )
     parser.add_argument("--max_updates", type=int, default=0, help="每个epoch最多optimizer更新数；0表示由数据/有效组预算决定")
+    parser.add_argument(
+        "--max_candidate_groups", type=int, default=0,
+        help="每个epoch最多采样的候选prompt组数；0表示不单独限制，用于候选预算匹配",
+    )
     parser.add_argument(
         "--max_effective_groups", type=int, default=0,
         help="DAPO有效组预算；0关闭。有效组按混合成功/失败prompt组计数，可重复抽题",
@@ -1283,8 +1460,8 @@ if __name__ == "__main__":
         parser.error("weight_decay must be >= 0")
     if args.max_rollout_logprob_mae <= 0:
         parser.error("max_rollout_logprob_mae must be > 0")
-    if args.max_updates < 0 or args.max_effective_groups < 0 or args.max_generated_tokens < 0:
-        parser.error("max_updates, max_effective_groups and max_generated_tokens must be >= 0")
+    if min(args.max_updates, args.max_candidate_groups, args.max_effective_groups, args.max_generated_tokens) < 0:
+        parser.error("max_updates, max_candidate_groups, max_effective_groups and max_generated_tokens must be >= 0")
     if args.rollout_top_k < 0 or not 0 < args.rollout_top_p <= 1:
         parser.error("rollout_top_k must be >= 0 and rollout_top_p must be in (0, 1]")
     try:
@@ -1332,6 +1509,7 @@ if __name__ == "__main__":
             "dynamic_sampling_rounds": args.dynamic_sampling_rounds,
             "reward_mode": args.reward_mode,
             "max_updates": args.max_updates,
+            "max_candidate_groups": args.max_candidate_groups,
             "max_effective_groups": args.max_effective_groups,
             "max_generated_tokens": args.max_generated_tokens,
             "checkpoint_groups": args.checkpoint_groups,
@@ -1357,7 +1535,7 @@ if __name__ == "__main__":
     )
     lm_config = MiniMindConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,
                                max_seq_len=args.max_seq_len + args.max_gen_len, use_moe=bool(args.use_moe))
-    ckp_data = lm_checkpoint(lm_config, weight=args.save_weight, save_dir='../checkpoints') if args.from_resume == 1 else None
+    ckp_data = lm_checkpoint(lm_config, weight=args.save_weight, save_dir=args.checkpoint_dir) if args.from_resume == 1 else None
 
     device_type = "cuda" if "cuda" in args.device else "cpu"
     dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16

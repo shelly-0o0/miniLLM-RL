@@ -1,0 +1,215 @@
+{
+  "status": "PASS",
+  "agent_sft_a": {
+    "dataset_rows": 3692,
+    "data_sha256": "a80c0c1c0be7ecfb076ad5ad6e998884a997a1e1f654eae56511359498af2dd5",
+    "final_summary": "checkpoints/stage2_track2/qwen3_4b/agent_sft_a_lm_head_w8_s42/final_summary.json",
+    "train_metrics": {
+      "train_runtime": 1660.1113,
+      "train_samples_per_second": 2.224,
+      "train_steps_per_second": 0.139,
+      "total_flos": 3.027095064605491e+16,
+      "train_loss": 0.8858894823175488,
+      "epoch": 1.0
+    },
+    "adapter": {
+      "path": "out/stage2_track2/qwen3_4b/agent_sft_a_lm_head_w8_s42_adapter",
+      "adapter_model_sha256": "69e36f0aed18c1866ac29a66c74f65130b9e05604d20e83a4a4732d9d6f0ba04",
+      "tensor_count": 506,
+      "parameter_count": 35502080,
+      "non_finite_tensors": []
+    }
+  },
+  "additional_sft_b": {
+    "dataset_rows": 3686,
+    "data_sha256": "300a1ee3c83483752c5c60518f966a16481cface313d44d7ed32922d7d712344",
+    "final_summary": "checkpoints/stage2_track2/qwen3_4b/additional_sft_b_s42/final_summary.json",
+    "train_metrics": {
+      "train_runtime": 1658.4309,
+      "train_samples_per_second": 2.223,
+      "train_steps_per_second": 0.139,
+      "total_flos": 3.026830895596339e+16,
+      "train_loss": 0.09277277672058576,
+      "epoch": 1.0
+    },
+    "adapter": {
+      "path": "out/stage2_track2/qwen3_4b/additional_sft_b_s42_adapter",
+      "adapter_model_sha256": "1af0712c474b417cc1b06f72d0c38e87a56ae32f036bf6894ed37858e5ab1251",
+      "tensor_count": 506,
+      "parameter_count": 35502080,
+      "non_finite_tensors": []
+    }
+  },
+  "grpo_a": {
+    "dataset_rows": 3686,
+    "data_sha256": "980473eb565b04610b94c12a33730ea938a699c3ff6d887be1087a2dc5e0ff37",
+    "group_size": 8,
+    "candidate_groups": 3686,
+    "candidate_trajectories": 29488,
+    "optimizer_updates": 3686,
+    "metric_records": 3686,
+    "kl_rejections": 0,
+    "max_rollout_logprob_mae": 0.06199638545513153,
+    "max_kl_k3": 0.04055492058468349,
+    "adapter": {
+      "path": "out/stage2_track2/qwen3_4b/grpo_a_s42_adapter",
+      "adapter_model_sha256": "435aa807a6d91667eda14c45c8515c3af2e54103d054a4b908ff826f5ed3c2aa",
+      "tensor_count": 506,
+      "parameter_count": 35502080,
+      "non_finite_tensors": []
+    }
+  },
+  "grpo_b": {
+    "dataset_rows": 3686,
+    "data_sha256": "761e7c61da2088df6946541100eec74f603d54a6a2c0454e0668628cdb9e2845",
+    "group_size": 8,
+    "candidate_groups": 3686,
+    "candidate_trajectories": 29488,
+    "optimizer_updates": 3686,
+    "metric_records": 3686,
+    "kl_rejections": 0,
+    "max_rollout_logprob_mae": 0.04759848862886429,
+    "max_kl_k3": 0.04108973846737453,
+    "adapter": {
+      "path": "out/stage2_track2/qwen3_4b/grpo_b_s42_adapter",
+      "adapter_model_sha256": "6398c4b12b5c638321f50e8fbbe99a4c048a453e2f41cf93073fc013d69c5552",
+      "tensor_count": 506,
+      "parameter_count": 35502080,
+      "non_finite_tensors": []
+    }
+  },
+  "test": {
+    "summary": "out/stage2_track2/qwen3_4b/evaluation/test/summary.json",
+    "manifest": "out/stage2_track2/qwen3_4b/evaluation/test/manifest.json",
+    "data_rows": 1319,
+    "evaluated_prompts": 1319,
+    "trajectories_per_arm": 1319,
+    "results": [
+      {
+        "label": "base",
+        "split": "test",
+        "model_name": "Qwen/Qwen3-4B-Base",
+        "model_revision": "main",
+        "adapter_path": null,
+        "adapter_model_sha256": null,
+        "data_path": "data/processed/gsm8k_track2/test_rl.jsonl",
+        "data_sha256": "b1cccea67994ea00b02a5eb61d4915a2ed45de1d09a3259b5df672687d451159",
+        "decode_seeds": [
+          42
+        ],
+        "num_trajectories": 1319,
+        "reward": -1.0,
+        "task_accuracy": 0.0,
+        "answer_accuracy": 0.04245640636846096,
+        "format_valid_rate": 0.0,
+        "tool_call_valid_rate": 0.0,
+        "tool_execution_success_rate": 0.0,
+        "required_tool_coverage_rate": 0.0,
+        "tool_evidence_coverage_rate": 0.0,
+        "unfinished_rate": 0.0,
+        "avg_response_tokens": 384.0,
+        "wall_time_seconds": 20988.06679034233
+      },
+      {
+        "label": "agent_sft_a",
+        "split": "test",
+        "model_name": "Qwen/Qwen3-4B-Base",
+        "model_revision": "main",
+        "adapter_path": "out/stage2_track2/qwen3_4b/agent_sft_a_lm_head_w8_s42_adapter",
+        "adapter_model_sha256": "69e36f0aed18c1866ac29a66c74f65130b9e05604d20e83a4a4732d9d6f0ba04",
+        "data_path": "data/processed/gsm8k_track2/test_rl.jsonl",
+        "data_sha256": "b1cccea67994ea00b02a5eb61d4915a2ed45de1d09a3259b5df672687d451159",
+        "decode_seeds": [
+          42
+        ],
+        "num_trajectories": 1319,
+        "reward": -0.9818043972706596,
+        "task_accuracy": 0.009097801364670205,
+        "answer_accuracy": 0.11372251705837756,
+        "format_valid_rate": 0.08567096285064443,
+        "tool_call_valid_rate": 0.3866565579984837,
+        "tool_execution_success_rate": 0.3866565579984837,
+        "required_tool_coverage_rate": 0.3866565579984837,
+        "tool_evidence_coverage_rate": 0.05079605761940864,
+        "unfinished_rate": 0.0,
+        "avg_response_tokens": 52.875663381349504,
+        "wall_time_seconds": 5367.19002199173
+      },
+      {
+        "label": "grpo_a_seen",
+        "split": "test",
+        "model_name": "Qwen/Qwen3-4B-Base",
+        "model_revision": "main",
+        "adapter_path": "out/stage2_track2/qwen3_4b/grpo_a_s42_adapter",
+        "adapter_model_sha256": "435aa807a6d91667eda14c45c8515c3af2e54103d054a4b908ff826f5ed3c2aa",
+        "data_path": "data/processed/gsm8k_track2/test_rl.jsonl",
+        "data_sha256": "b1cccea67994ea00b02a5eb61d4915a2ed45de1d09a3259b5df672687d451159",
+        "decode_seeds": [
+          42
+        ],
+        "num_trajectories": 1319,
+        "reward": -0.9484457922668689,
+        "task_accuracy": 0.02577710386656558,
+        "answer_accuracy": 0.14935557240333586,
+        "format_valid_rate": 0.09021986353297953,
+        "tool_call_valid_rate": 0.4291129643669447,
+        "tool_execution_success_rate": 0.42835481425322214,
+        "required_tool_coverage_rate": 0.42835481425322214,
+        "tool_evidence_coverage_rate": 0.07808946171341925,
+        "unfinished_rate": 0.0,
+        "avg_response_tokens": 60.73995451099318,
+        "wall_time_seconds": 5909.4728462696075
+      },
+      {
+        "label": "grpo_b_new_data",
+        "split": "test",
+        "model_name": "Qwen/Qwen3-4B-Base",
+        "model_revision": "main",
+        "adapter_path": "out/stage2_track2/qwen3_4b/grpo_b_s42_adapter",
+        "adapter_model_sha256": "6398c4b12b5c638321f50e8fbbe99a4c048a453e2f41cf93073fc013d69c5552",
+        "data_path": "data/processed/gsm8k_track2/test_rl.jsonl",
+        "data_sha256": "b1cccea67994ea00b02a5eb61d4915a2ed45de1d09a3259b5df672687d451159",
+        "decode_seeds": [
+          42
+        ],
+        "num_trajectories": 1319,
+        "reward": -0.9469294920394238,
+        "task_accuracy": 0.026535253980288095,
+        "answer_accuracy": 0.16906747536012132,
+        "format_valid_rate": 0.09552691432903715,
+        "tool_call_valid_rate": 0.4564063684609553,
+        "tool_execution_success_rate": 0.45602729340409404,
+        "required_tool_coverage_rate": 0.4564063684609553,
+        "tool_evidence_coverage_rate": 0.08567096285064443,
+        "unfinished_rate": 0.0,
+        "avg_response_tokens": 59.432903714935556,
+        "wall_time_seconds": 5926.631494045258
+      },
+      {
+        "label": "additional_sft_b",
+        "split": "test",
+        "model_name": "Qwen/Qwen3-4B-Base",
+        "model_revision": "main",
+        "adapter_path": "out/stage2_track2/qwen3_4b/additional_sft_b_s42_adapter",
+        "adapter_model_sha256": "1af0712c474b417cc1b06f72d0c38e87a56ae32f036bf6894ed37858e5ab1251",
+        "data_path": "data/processed/gsm8k_track2/test_rl.jsonl",
+        "data_sha256": "b1cccea67994ea00b02a5eb61d4915a2ed45de1d09a3259b5df672687d451159",
+        "decode_seeds": [
+          42
+        ],
+        "num_trajectories": 1319,
+        "reward": -0.14935557240333586,
+        "task_accuracy": 0.42532221379833207,
+        "answer_accuracy": 0.4829416224412434,
+        "format_valid_rate": 0.9719484457922669,
+        "tool_call_valid_rate": 0.9924184988627748,
+        "tool_execution_success_rate": 0.9903967652563076,
+        "required_tool_coverage_rate": 0.9916603487490523,
+        "tool_evidence_coverage_rate": 0.4397270659590599,
+        "unfinished_rate": 0.0,
+        "avg_response_tokens": 80.2994692949204,
+        "wall_time_seconds": 7911.896570444107
+      }
+    ]
+  }
+}

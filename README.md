@@ -2,16 +2,17 @@
 
 一个面向 GSM8K 数学 Agentic RL 后训练的可复现实验项目。
 
-本项目以 MiniMind-64M 作为 Stage 1 基座，使用统一的 GSM8K 数据、calculator 环境和数学 verifier，研究 PPO、GRPO、CISPO、DAPO、GSPO 的 Agentic RL 后训练；Stage 2 计划将同一套数据和评测协议迁移到 Qwen3-4B，执行 LoRA SFT 与 RL。项目重点是验证训练闭环、奖励信号、算法稳定性和跨规模迁移，不以 GSM8K SOTA 为目标。
+本项目以 MiniMind-64M 作为 Stage 1 基座，使用统一的 GSM8K 数据、calculator 环境和数学 verifier，研究 PPO、GRPO、CISPO、DAPO、GSPO 的 Agentic RL 后训练；Stage 2 将同一套多轮工具环境迁移到 Qwen3-4B-Base。完成的 Track 2 主线以互斥 A/B 数据比较 Agent-SFT、GRPO 和 Additional-SFT；另保留 Pure GRPO 与 SFT → GRPO 长程实验作为冷启动研究。项目重点是验证训练闭环、奖励信号、冷启动作用和跨规模迁移，不以 GSM8K SOTA 为目标。
 
 ## 项目阶段
 
 ```text
 Stage 1: MiniMind-64M → Agent SFT → PPO/GRPO/CISPO/DAPO/GSPO
-Stage 2: Qwen3-4B   → LoRA Agent SFT → GRPO/PPO
+Stage 2 Track 1: Qwen3-4B-Base → Base / Pure GRPO / SFT only / SFT → GRPO
+Stage 2 Track 2: Agent-SFT(A) → GRPO(A) / GRPO(B) / Additional-SFT(B)
 ```
 
-所有 RL 方法从同一个 SFT checkpoint 分叉，使用相同 GSM8K manifest、prompt、calculator、answer parser 和固定评测集。
+同一阶段的比较使用相同 GSM8K manifest、prompt、calculator、answer parser、rollout 参数和固定评测集。Stage 2 的 Pure GRPO 从 Base 的新建零初始化 LoRA 开始，SFT → GRPO 从 SFT adapter 开始，以隔离 warm start 的作用。
 
 ## 项目内容
 
@@ -53,6 +54,11 @@ miniLLM-RL/
 2. [数据集与 Benchmark 规范](docs/DATASET_AND_BENCHMARK.md)
 3. [实验协议](docs/EXPERIMENT_PROTOCOL.md)
 4. [工作记录](docs/WORKLOG.md)
+5. [Stage 1 GSM8K 最终报告](docs/STAGE1_GSM8K_FINAL_REPORT.md)
+6. [Stage 2 完整搭建与算法记录](docs/STAGE2_QWEN3_4B_BUILD_LOG.md)
+7. [Stage 2 Track 2 最终报告](docs/STAGE2_TRACK2_FINAL_REPORT.md)
+8. [项目总报告：算法、过程、结果与结论](docs/PROJECT_SUMMARY_REPORT.md)
+9. [可发布实验结果索引](results/README.md)
 
 旧的 MiniMind/RL 研究报告保留在 `docs/foundation_model_interview/`，作为历史实现和实验审计材料，不代表新的 GSM8K 主线已经完成。
 
@@ -87,6 +93,64 @@ PyTorch 需要根据本机 CUDA、操作系统和 GPU 环境单独安装。完�
 ```bash
 PYTHONPATH=. python -m unittest discover -s tests -p 'test_*.py'
 ```
+
+准备 GSM8K 固定切分并生成可审计 manifest：
+
+```bash
+python scripts/download/download_gsm8k.py
+python scripts/prepare/prepare_gsm8k.py
+python scripts/prepare/prepare_gsm8k_agent_data.py
+python scripts/evaluate/evaluate_gsm8k.py \
+  --references data/processed/gsm8k/validation.jsonl \
+  --predictions path/to/predictions.jsonl
+```
+
+预测文件每行至少包含 `id` 和 `prediction`。训练、验证和官方测试文件会进行题目级泄漏检查；manifest 记录每个 split 的行数与 SHA-256。
+
+## Stage 2：Qwen3-4B Agentic GRPO
+
+Stage 2 的额外依赖、无权重 readiness 审计和 smoke test：
+
+```bash
+python -m pip install -r requirements-stage2.txt
+python scripts/audit_qwen_stage2.py
+
+bash scripts/run_qwen_stage2.sh smoke_sft
+bash scripts/run_qwen_stage2.sh smoke_pure_grpo
+bash scripts/run_qwen_stage2.sh smoke_sft_grpo
+```
+
+smoke 全部通过后再运行正式矩阵：
+
+```bash
+bash scripts/run_qwen_stage2.sh sft
+bash scripts/run_qwen_stage2.sh pilot_pure_grpo
+bash scripts/run_qwen_stage2.sh pilot_sft_grpo
+bash scripts/run_qwen_stage2.sh pure_grpo
+bash scripts/run_qwen_stage2.sh sft_grpo
+bash scripts/run_qwen_stage2.sh eval_validation
+bash scripts/run_qwen_stage2.sh eval_test
+```
+
+训练入口保留真实的 `calculate_math` 调用、工具执行结果回填、第二轮生成和严格 RLVR verifier，不是只约束答案文本格式的单轮 GRPO。完整原理、显存设计、日志字段、恢复规则和执行顺序见 [Stage 2 完整记录](docs/STAGE2_QWEN3_4B_BUILD_LOG.md)。
+
+### Track 2：互斥 A/B 数据实验
+
+Track 2 从 Agent-SFT(A) 的同一 adapter 分叉，比较 GRPO(A)、GRPO(B) 与 Additional-SFT(B)，用于区分已见题 RL、新题 RL 和继续监督学习。先运行：
+
+```bash
+bash scripts/run_qwen_track2.sh prepare
+bash scripts/run_qwen_track2.sh audit
+bash scripts/run_qwen_track2.sh smoke_sft_a
+bash scripts/run_qwen_track2.sh probe_smoke
+bash scripts/run_qwen_track2.sh smoke_additional_sft_b
+bash scripts/run_qwen_track2.sh smoke_grpo_a
+bash scripts/run_qwen_track2.sh smoke_grpo_b
+```
+
+数据边界、算法公式、完整执行顺序、监控和结论限制见 [Track 2 完整记录](docs/TRACK2_AB_AGENTIC_RL_BUILD_LOG.md)。
+
+Track 2 已完成五臂 1,319 题官方测试并通过 fail-closed 审计。严格任务成功率为 Base 0%、Agent-SFT(A) 0.910%、GRPO(A) 2.578%、GRPO(B) 2.654%、Additional-SFT(B) 42.532%。完整配对统计与结论边界见 [Track 2 最终报告](docs/STAGE2_TRACK2_FINAL_REPORT.md)。
 
 ## 我的主要工作
 

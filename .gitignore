@@ -9,6 +9,9 @@ logs/
 runs/
 wandb/
 models/pretrained/
+models/minimind-3/
+models/qwen3-4b-base-tokenizer/
+artifacts/
 data/raw/
 data/processed/
 dataset/raw/
@@ -31,4 +34,6 @@ learning_notebooks/.ipynb_checkpoints/
 # Local environment and experiment metadata
 .env
 .venv/
+.cache/
+*.pem
 *.swp

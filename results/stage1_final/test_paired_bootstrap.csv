@@ -1,0 +1,2 @@
+algorithm,baseline,items,bootstrap_samples,task_accuracy_delta,paired_item_bootstrap_ci95_low,paired_item_bootstrap_ci95_high,probability_delta_gt_zero,question_win_rate,question_tie_rate,question_loss_rate,uncertainty_scope
+dapo,agent_sft,1319,20000,0.011203773902788306,0.005391289697582344,0.01718473591104372,0.9999,0.15466262319939347,0.7930250189537529,0.052312357846853674,paired question sampling; training-seed std reported separately

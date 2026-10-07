@@ -3,7 +3,7 @@ import torch
 import json
 import os
 import random
-from datasets import load_dataset, Features, Sequence, Value
+from datasets import load_dataset
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def pre_processing_chat(conversations, add_system_ratio=0.2):
@@ -79,9 +79,12 @@ class SFTDataset(Dataset):
         super().__init__()
         self.tokenizer = tokenizer
         self.max_length = max_length
-        # 明确每条消息允许出现的字段，避免 JSON 结构不稳定时解析出错。
-        features = Features({'conversations': [{'role': Value('string'), 'content': Value('string'), 'reasoning_content': Value('string'), 'tools': Value('string'), 'tool_calls': Value('string')}]})
-        self.samples = load_dataset('json', data_files=jsonl_path, split='train', features=features)
+        # 允许 id/source 等顶层审计元数据存在；训练只消费 conversations。
+        # 强制一个只含 conversations 的 Arrow schema 会拒绝这些合法列，
+        # 并且对不同 role 所需的稀疏 message 字段也过度严格。
+        self.samples = load_dataset('json', data_files=jsonl_path, split='train')
+        if 'conversations' not in self.samples.column_names:
+            raise ValueError(f"SFT dataset {jsonl_path!r} is missing 'conversations'")
         # 这里的 BOS/EOS 用于在 token 序列中定位 assistant 回复区间。
         self.bos_id = tokenizer(f'{tokenizer.bos_token}assistant\n', add_special_tokens=False).input_ids
         self.eos_id = tokenizer(f'{tokenizer.eos_token}\n', add_special_tokens=False).input_ids

@@ -7,13 +7,63 @@ from trainer.train_agent import (
     checkpoint_state_dict,
     execute_tool,
     shift_action_mask,
+    rollout_batch,
     validate_gt_in_text,
 )
+from trainer.rollout_engine import RolloutResult
 
 import torch
 
 
 class AgentRewardTest(unittest.TestCase):
+    def test_group_rollout_batches_the_shared_first_turn_and_masks_padding(self):
+        class Encoded:
+            input_ids = [7, 8]
+
+        class Tokenizer:
+            chat_template = "plain template"
+            pad_token_id = 0
+            eos_token_id = 2
+
+            def apply_chat_template(self, *args, tokenize=False, **kwargs):
+                return [7, 8] if tokenize else "prompt"
+
+            def __call__(self, *args, **kwargs):
+                return Encoded()
+
+            def decode(self, ids, skip_special_tokens=True):
+                values = [value for value in ids if value not in (0, 2)]
+                return "first" if values == [11] else "second"
+
+        class Engine:
+            def __init__(self):
+                self.calls = 0
+
+            def rollout(self, prompt_ids, attention_mask, num_generations, **kwargs):
+                self.calls += 1
+                self.num_generations = num_generations
+                return RolloutResult(
+                    output_ids=torch.tensor([[7, 8, 11, 2, 0], [7, 8, 12, 12, 2]]),
+                    completion_ids=torch.tensor([[11, 2, 0], [12, 12, 2]]),
+                    per_token_logps=torch.tensor([[-0.1, -0.2, 0.0], [-0.3, -0.4, -0.5]]),
+                    completions=["first", "second"],
+                    prompt_lens=torch.tensor([2, 2]),
+                    completion_mask=torch.tensor([[1, 1, 0], [1, 1, 1]]),
+                )
+
+        engine = Engine()
+        values = rollout_batch(
+            engine, Tokenizer(), [[{"role": "user", "content": "q"}]],
+            [[]], 2, max_turns=1, max_new_tokens=3, thinking_ratio=0.0,
+            device="cpu",
+        )
+        completions, _, _, response_ids, response_masks, _, _, _, _ = values
+        self.assertEqual(engine.calls, 1)
+        self.assertEqual(engine.num_generations, 2)
+        self.assertEqual(completions, ["first", "second"])
+        self.assertEqual(response_ids, [[11, 2], [12, 12, 2]])
+        self.assertEqual(response_masks, [[1, 1], [1, 1, 1]])
+
     def test_rl_checkpoint_defaults_to_float32(self):
         model = torch.nn.Linear(3, 2)
         state = checkpoint_state_dict(model)
@@ -28,6 +78,41 @@ class AgentRewardTest(unittest.TestCase):
         self.assertIsNone(execute_tool("calculate_math", {"expression": "__import__('os').system('id')"}))
         self.assertIsNone(execute_tool("calculate_math", {"expression": "2**1000000"}))
         self.assertIsNone(execute_tool("calculate_math", {"expression": "1/0"}))
+
+    def test_malformed_tool_schema_is_rejected_without_crashing(self):
+        self.assertIsNone(execute_tool({"tool": "calculate_math"}, {"expression": "2+2"}))
+        self.assertIsNone(execute_tool("calculate_math", ["2+2"]))
+
+        malformed_call = (
+            '<tool_call>{"name":{"tool":"calculate_math"},'
+            '"arguments":{"expression":"2+2"}}</tool_call>'
+        )
+        output = calculate_rewards(
+            prompts=["question"],
+            completions=["The result is 4."],
+            gt_batch=[["4"]],
+            tools_batch=[[item for item in TOOLS if item["function"]["name"] == "calculate_math"]],
+            num_gen=1,
+            device="cpu",
+            turn_outputs_batch=[[malformed_call, "The result is 4."]],
+            unfinished_batch=[False],
+            require_tool_call_for_success=True,
+            return_details=True,
+        )
+        self.assertFalse(output.task_success.item())
+        self.assertEqual(output.tool_call_valid.item(), 0.0)
+        self.assertEqual(output.tool_execution_success.item(), 0.0)
+
+        list_payload = calculate_rewards(
+            prompts=["question"], completions=["4"], gt_batch=[["4"]],
+            tools_batch=[[item for item in TOOLS if item["function"]["name"] == "calculate_math"]],
+            num_gen=1, device="cpu",
+            turn_outputs_batch=[["<tool_call>[]</tool_call>", "4"]],
+            unfinished_batch=[False], require_tool_call_for_success=True,
+            return_details=True,
+        )
+        self.assertFalse(list_payload.task_success.item())
+        self.assertEqual(list_payload.tool_call_valid.item(), 0.0)
 
     def test_valid_tool_trajectory_is_verifiable(self):
         tool = [item for item in TOOLS if item["function"]["name"] == "calculate_math"]
@@ -73,6 +158,81 @@ class AgentRewardTest(unittest.TestCase):
         )
         self.assertGreater(output.rewards.item(), -3.0)
         self.assertFalse(output.task_success.item())
+
+    def test_missing_required_tool_call_is_not_valid_format(self):
+        tool = [
+            item for item in TOOLS
+            if item["function"]["name"] == "calculate_math"
+        ]
+        output = calculate_rewards(
+            prompts=["question"], completions=["4"], gt_batch=[["4"]],
+            tools_batch=[tool], num_gen=1, device="cpu",
+            turn_outputs_batch=[["4"]], unfinished_batch=[False],
+            require_tool_call_for_success=True, reward_mode="shaped",
+            return_details=True,
+        )
+        self.assertEqual(output.format_valid.item(), 0.0)
+        self.assertFalse(output.task_success.item())
+
+    def test_shaped_reward_recognizes_but_does_not_execute_untagged_json(self):
+        tool = [
+            item for item in TOOLS
+            if item["function"]["name"] == "calculate_math"
+        ]
+        common = dict(
+            prompts=["question"], gt_batch=[["4"]], tools_batch=[tool],
+            num_gen=1, required_tools_batch=[["calculate_math"]],
+            device="cpu", unfinished_batch=[False],
+            require_tool_call_for_success=True, return_details=True,
+        )
+        raw = '{"name":"calculate_math","arguments":{"expression":"2+2"}}'
+        shaped = calculate_rewards(
+            completions=[raw], turn_outputs_batch=[[raw]],
+            reward_mode="shaped", **common,
+        )
+        plain = calculate_rewards(
+            completions=["I might use a tool."],
+            turn_outputs_batch=[["I might use a tool."]],
+            reward_mode="shaped", **common,
+        )
+        strict = calculate_rewards(
+            completions=[raw], turn_outputs_batch=[[raw]],
+            reward_mode="strict", **common,
+        )
+        self.assertGreater(shaped.rewards.item(), plain.rewards.item())
+        self.assertGreater(shaped.protocol_progress.item(), 0.0)
+        self.assertEqual(shaped.format_valid.item(), 0.0)
+        self.assertEqual(shaped.tool_execution_success.item(), 0.0)
+        self.assertFalse(shaped.task_success.item())
+        self.assertEqual(strict.rewards.item(), -1.0)
+
+    def test_shaped_reward_penalizes_balanced_but_unparseable_extra_tags(self):
+        tool = [
+            item for item in TOOLS
+            if item["function"]["name"] == "calculate_math"
+        ]
+        call = (
+            '<tool_call>{"name":"calculate_math",'
+            '"arguments":{"expression":"2+2"}}</tool_call>'
+        )
+        common = dict(
+            prompts=["question"], completions=["4"], gt_batch=[["4"]],
+            tools_batch=[tool], num_gen=1,
+            required_tools_batch=[["calculate_math"]], device="cpu",
+            unfinished_batch=[False], require_tool_call_for_success=True,
+            reward_mode="shaped", return_details=True,
+        )
+        valid = calculate_rewards(
+            turn_outputs_batch=[[call, "4"]], **common
+        )
+        malformed = calculate_rewards(
+            turn_outputs_batch=[[call + "<tool_call></tool_call>", "4"]],
+            **common,
+        )
+        self.assertTrue(valid.task_success.item())
+        self.assertFalse(malformed.task_success.item())
+        self.assertEqual(malformed.format_valid.item(), 0.0)
+        self.assertGreater(valid.rewards.item(), malformed.rewards.item())
 
     def test_distractor_tool_does_not_satisfy_required_tool(self):
         tools = [
