@@ -1,0 +1,50 @@
+model:
+  name: Qwen/Qwen3-4B-Base
+  revision: main
+  trust_remote_code: false
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+  compute_dtype: bfloat16
+  use_im_end_as_eos: true
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+    - lm_head
+
+runs:
+  - label: base
+    adapter_path: null
+  - label: sft_only
+    adapter_path: out/stage2/qwen3_4b/sft_lm_head_w8_s42_adapter
+  - label: pure_grpo
+    adapter_path: out/stage2/qwen3_4b/pure_grpo_s42_adapter
+  - label: sft_grpo
+    adapter_path: out/stage2/qwen3_4b/sft_grpo_s42_adapter
+
+evaluation:
+  # A four-arm comparison is only valid when no arm is silently skipped.
+  require_all_runs: true
+  validation_path: data/processed/gsm8k_agent/validation_rl.jsonl
+  test_path: data/processed/gsm8k_agent/test_rl.jsonl
+  output_dir: out/stage2/qwen3_4b/evaluation
+  device: cuda:0
+  limit: 128
+  decode_seeds: [42]
+  max_prompt_length: 1024
+  max_turns: 3
+  max_new_tokens: 384
+  temperature: 1.0
+  top_k: 0
+  top_p: 1.0

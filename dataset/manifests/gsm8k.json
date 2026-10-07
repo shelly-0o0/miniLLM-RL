@@ -1,0 +1,23 @@
+{
+  "dataset": "openai/gsm8k",
+  "config": "main",
+  "seed": 42,
+  "policy": "official train -> train/validation; official test -> test only",
+  "splits": {
+    "train": {
+      "path": "data/processed/gsm8k/train.jsonl",
+      "rows": 6726,
+      "sha256": "ac50501c318c17086796c61f6e83a2b312c81c5de1d36048b9d9ea6a221dc121"
+    },
+    "validation": {
+      "path": "data/processed/gsm8k/validation.jsonl",
+      "rows": 747,
+      "sha256": "97ec6e09e6a290648c9a01abf5e4520be52be82ed28ec9093a8be2a777563e9f"
+    },
+    "test": {
+      "path": "data/processed/gsm8k/test.jsonl",
+      "rows": 1319,
+      "sha256": "9d27b7f77999e9f2e685b22fc306736d713d4ab95509797349a99929e93eadad"
+    }
+  }
+}

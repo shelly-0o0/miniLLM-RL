@@ -97,7 +97,7 @@ class RolloutResult:
 # ===== Rollout 引擎抽象基类 =====
 class RolloutEngine(ABC):
     tokenizer = None
-    
+
     @abstractmethod
     def rollout(
         self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int,
@@ -105,7 +105,7 @@ class RolloutEngine(ABC):
         top_p: float = 1.0,
     ) -> RolloutResult:
         pass
-    
+
     @abstractmethod
     def update_policy(self, model: torch.nn.Module):
         pass
@@ -118,7 +118,7 @@ class TorchRolloutEngine(RolloutEngine):
         self.tokenizer = tokenizer
         self.device = device
         self.autocast_ctx = autocast_ctx
-    
+
     def rollout(
         self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int,
         max_new_tokens: int, temperature: float = 1.0, top_k: int = 0,
@@ -139,6 +139,10 @@ class TorchRolloutEngine(RolloutEngine):
                     top_k=top_k,
                     top_p=top_p,
                     num_return_sequences=1,
+                    # Training disables cache for gradient checkpointing, but
+                    # autoregressive rollout is inference and must reuse KV
+                    # states.  This is especially important for Qwen3-4B.
+                    use_cache=True,
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
                     # PAD is storage padding, never a policy action.  Sampling
@@ -162,10 +166,18 @@ class TorchRolloutEngine(RolloutEngine):
         finally:
             model.train(was_training)
         completions = self.tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
+        # ``generate`` right-pads shorter rows when several samples stop at
+        # different EOS positions.  Those PAD values are storage only and
+        # must not become policy actions in the trajectory ledger.
+        completion_mask = (
+            completion_ids.ne(self.tokenizer.pad_token_id).long()
+            if self.tokenizer.pad_token_id is not None
+            else attention_mask.new_ones(completion_ids.shape)
+        )
         return RolloutResult(output_ids, completion_ids, per_token_logps, completions,
                              prompt_ids.new_full((output_ids.size(0),), prompt_len),
-                             attention_mask.new_ones(output_ids.size(0), completion_ids.size(1)))
-    
+                             completion_mask)
+
     def update_policy(self, model: torch.nn.Module):
         self.policy_model = model
 
@@ -178,7 +190,7 @@ class SGLangRolloutEngine(RolloutEngine):
         self.timeout = timeout
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         self.http = requests
-    
+
     def rollout(
         self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int,
         max_new_tokens: int, temperature: float = 1.0, top_k: int = 0,
@@ -190,7 +202,7 @@ class SGLangRolloutEngine(RolloutEngine):
             valid_ids = ids[mask.bool()].tolist()
             input_ids_list.append(valid_ids)
         all_input_ids = [ids for ids in input_ids_list for _ in range(num_generations)]
-        
+
         payload = {
             "input_ids": all_input_ids,
             "sampling_params": {
@@ -202,29 +214,29 @@ class SGLangRolloutEngine(RolloutEngine):
             },
             "return_logprob": True,
         }
-        
+
         resp = self.http.post(f"{self.base_url}/generate", json=payload, timeout=self.timeout)
         resp.raise_for_status()
-        
+
         results = resp.json()
         if not isinstance(results, list):
             results = [results]
-        
+
         all_output_ids, all_completion_ids, all_logprobs = [], [], []
         completions = []
-        
+
         for i, result in enumerate(results):
             meta = result.get("meta_info", {})
             completion_ids = meta.get("output_ids", result.get("output_ids", []))
             raw_logprobs = meta.get("output_token_logprobs", [])
-            
+
             logprobs = []
             for item in raw_logprobs:
                 if isinstance(item, (list, tuple)) and len(item) >= 1:
                     logprobs.append(item[0])
                 elif isinstance(item, (int, float)):
                     logprobs.append(item)
-            
+
             if len(logprobs) < len(completion_ids):
                 logprobs = [0.0] * (len(completion_ids) - len(logprobs)) + logprobs
             elif len(logprobs) > len(completion_ids):
@@ -235,14 +247,14 @@ class SGLangRolloutEngine(RolloutEngine):
             all_completion_ids.append(completion_ids)
             all_logprobs.append(logprobs)
             completions.append(self.tokenizer.decode(completion_ids, skip_special_tokens=True))
-        
+
         device = prompt_ids.device
         max_comp_len = max(1, max(len(ids) for ids in all_completion_ids))
         max_out_len = max(len(ids) for ids in all_input_ids) + max_comp_len
-        
+
         def pad_to_tensor(seqs, max_len, pad_val=0):
             return torch.tensor([s + [pad_val] * (max_len - len(s)) for s in seqs], device=device)
-        
+
         pad_id = self.tokenizer.pad_token_id
         return RolloutResult(
             output_ids=pad_to_tensor(all_output_ids, max_out_len, pad_val=pad_id),
@@ -252,7 +264,7 @@ class SGLangRolloutEngine(RolloutEngine):
             prompt_lens=torch.tensor([len(ids) for ids in all_input_ids], device=device),
             completion_mask=torch.tensor([[1] * len(ids) + [0] * (max_comp_len - len(ids)) for ids in all_completion_ids], device=device),
         )
-    
+
     def update_policy(self, model: torch.nn.Module):
         ok = True
         if not dist.is_initialized() or dist.get_rank() == 0:
@@ -273,11 +285,11 @@ class SGLangRolloutEngine(RolloutEngine):
             dist.broadcast(ok_t, src=0); dist.barrier(); ok = bool(ok_t.item())
         if not ok: raise RuntimeError("SGLang update_policy failed")
         return ok
-    
+
     def flush_cache(self) -> bool:
         resp = self.http.post(f"{self.base_url}/flush_cache", timeout=30)
         return resp.status_code == 200
-    
+
     def health(self) -> bool:
         try:
             resp = self.http.get(f"{self.base_url}/health", timeout=5)

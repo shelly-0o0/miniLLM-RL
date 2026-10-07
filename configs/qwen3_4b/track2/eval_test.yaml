@@ -1,0 +1,50 @@
+model:
+  name: Qwen/Qwen3-4B-Base
+  revision: main
+  trust_remote_code: false
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+  compute_dtype: bfloat16
+  use_im_end_as_eos: true
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+    - lm_head
+
+runs:
+  - label: base
+    adapter_path: null
+  - label: agent_sft_a
+    adapter_path: out/stage2_track2/qwen3_4b/agent_sft_a_lm_head_w8_s42_adapter
+  - label: grpo_a_seen
+    adapter_path: out/stage2_track2/qwen3_4b/grpo_a_s42_adapter
+  - label: grpo_b_new_data
+    adapter_path: out/stage2_track2/qwen3_4b/grpo_b_s42_adapter
+  - label: additional_sft_b
+    adapter_path: out/stage2_track2/qwen3_4b/additional_sft_b_s42_adapter
+
+evaluation:
+  require_all_runs: true
+  test_path: data/processed/gsm8k_track2/test_rl.jsonl
+  output_dir: out/stage2_track2/qwen3_4b/evaluation
+  device: cuda:0
+  limit: 0
+  decode_seeds: [42]
+  max_prompt_length: 1024
+  max_turns: 3
+  max_new_tokens: 384
+  temperature: 1.0
+  top_k: 0
+  top_p: 1.0

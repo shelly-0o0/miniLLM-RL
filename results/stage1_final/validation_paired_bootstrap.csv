@@ -1,0 +1,5 @@
+algorithm,baseline,items,bootstrap_samples,task_accuracy_delta,paired_item_bootstrap_ci95_low,paired_item_bootstrap_ci95_high,probability_delta_gt_zero,question_win_rate,question_tie_rate,question_loss_rate,uncertainty_scope
+cispo,agent_sft,747,20000,0.004759779860181466,-0.0019336605681987199,0.011304477167930984,0.9201,0.12449799196787148,0.8299866131191432,0.04551539491298527,paired question sampling; training-seed std reported separately
+dapo,agent_sft,747,20000,0.009965789082254945,0.002826119291982746,0.016807972631265804,0.9963,0.15261044176706828,0.8045515394912985,0.0428380187416332,paired question sampling; training-seed std reported separately
+grpo,agent_sft,747,20000,0.00550349546333482,-0.0014874312063067085,0.012494422132976349,0.93855,0.12449799196787148,0.8313253012048193,0.04417670682730924,paired question sampling; training-seed std reported separately
+gspo,agent_sft,747,20000,0.003718578015766771,-0.0035698348951361003,0.01085824780603897,0.83845,0.13654618473895583,0.8179384203480589,0.04551539491298527,paired question sampling; training-seed std reported separately

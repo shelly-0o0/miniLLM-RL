@@ -1,0 +1,63 @@
+seed: 42
+
+model:
+  name: Qwen/Qwen3-4B-Base
+  revision: main
+  trust_remote_code: false
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+  compute_dtype: bfloat16
+  use_im_end_as_eos: true
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+    - lm_head
+
+initialization:
+  adapter_path: out/stage2/qwen3_4b/sft_adapter
+  expand_target_modules: true
+
+data:
+  train_path: data/processed/gsm8k_agent/train_sft.jsonl
+  max_length: 1536
+  audit_samples: 128
+
+training:
+  device: cuda:0
+  micro_batch_size: 1
+  gradient_accumulation_steps: 16
+  epochs: 1
+  max_steps: 0
+  learning_rate: 1.0e-4
+  # Full-epoch w8 is the smallest already validated Stage 2 regime that made
+  # all three protocol boundaries reachable in free generation.
+  structure_token_weight: 8.0
+  weight_decay: 0.0
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  fp16: false
+  optim: adamw_torch
+  logging_steps: 5
+  save_strategy: "no"
+  save_steps: 100
+  save_total_limit: 2
+  num_workers: 0
+
+output:
+  trainer_dir: checkpoints/stage2/qwen3_4b/sft_lm_head_w8_s42
+  adapter_dir: out/stage2/qwen3_4b/sft_lm_head_w8_s42_adapter
+  metrics_path: out/metrics/qwen3_4b_sft_lm_head_w8_s42.jsonl
