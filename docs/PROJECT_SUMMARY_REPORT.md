@@ -274,6 +274,29 @@ DAPO 三个 training seed 的严格成功率分别为 3.2853%、3.6391%、3.0326
 
 工具调用和执行率已经接近 100%，所以 Stage 1 的主要瓶颈不是 XML/JSON 外形或 calculator runtime，而是从文字题构造正确算式、多步中间结果组合、最终数字与执行证据对齐。DAPO 的收益来自正确答案和证据覆盖的同步上升，不是依靠格式 bonus 刷分。
 
+### 6.5 效果量、稳定性与计算效率
+
+只看 `+1.1204 pp` 容易低估或高估 Stage 1 的意义，因此同时报告绝对变化、相对变化和训练稳定性：
+
+| 维度 | Agent-SFT | DAPO | 变化 | 解释 |
+|---|---:|---:|---:|---|
+| Strict Task Acc | 2.1986% | 3.3190% | +1.1204 pp / +50.96% relative | 主指标有实质增益，但绝对能力仍低 |
+| Answer Acc | 2.5272% | 3.6475% | +1.1204 pp / +44.33% relative | strict 增量几乎完全由答案改善贡献 |
+| Evidence Coverage | 2.2492% | 3.3274% | +1.0783 pp / +47.94% relative | 答案与执行证据的一致性同步改善 |
+| Tool Execution | 99.7914% | 99.8874% | +0.0960 pp | 工具层已饱和，不是主要收益来源 |
+| Avg Response Length | 126.19 | 114.72 | -11.47 / -9.09% | 更短输出伴随更高准确率，没有靠延长轨迹取胜 |
+
+DAPO 的三个 test seed 标准差为 `0.3047 pp`，变异系数约 `9.18%`，最高与最低 seed 相差 `0.6065 pp`。三个 seed 都超过 Agent-SFT，方向一致；但样本仍只有 3 个，所以应表述为“跨三个训练 seed 稳定为正”，而不是已经精确估计了训练随机性分布。
+
+| 算法 | Rollout/h | Generated token/s | Effective group rate | 计算解读 |
+|---|---:|---:|---:|---|
+| GRPO | 6,047 | 207.49 | 100% nominal | 吞吐最高，validation 增益区间仍跨 0 |
+| CISPO | 4,860 | 164.94 | 100% nominal | 本轮最慢，未换来显著更高主指标 |
+| DAPO | 6,058 | 189.69 | 18.56% | 大量组被 dynamic sampling 丢弃，但保留组更有学习信息 |
+| GSPO | 5,257 | 180.38 | 100% nominal | 序列级归约未优于 DAPO |
+
+DAPO 的 optimizer updates 只有其他方法约 18.6%，总 wall time 却与 GRPO 接近。这说明本项目的大头成本是生成 8 条候选轨迹，而不是 backward；dynamic sampling 能提高更新信息密度，却不能省掉已经完成的 rollout 成本。若未来希望降低计算量，需要在生成前预测低价值组或采用更便宜的探索，而不是只在生成后丢弃。
+
 ## 7. Stage 2 Track 2：Qwen3-4B 五臂正式结果
 
 ### 7.1 实验设计
@@ -288,12 +311,12 @@ DAPO 三个 training seed 的严格成功率分别为 3.2853%、3.6391%、3.0326
 
 ### 7.2 训练完成证据
 
-| 分支 | 数据行/候选组 | Rollout | Optimizer updates | KL rejection | 最大组 KL | 最大 logprob MAE |
+| 分支 | 数据行/候选组 | Rollout | Optimizer updates | Wall time | KL rejection | 最大组 KL |
 |---|---:|---:|---:|---:|---:|---:|
-| Agent-SFT(A) | 3,692 | — | 231 SFT steps | — | — | — |
-| GRPO(A) | 3,686 | 29,488 | 3,686 | 0 | 0.040555 | 0.061996 |
-| GRPO(B) | 3,686 | 29,488 | 3,686 | 0 | 0.041090 | 0.047598 |
-| Additional-SFT(B) | 3,686 | — | 231 SFT steps | — | — | — |
+| Agent-SFT(A) | 3,692 | — | 231 SFT steps | 0.461 h | — | — |
+| GRPO(A) | 3,686 | 29,488 | 3,686 | 15.208 h | 0 | 0.040555 |
+| GRPO(B) | 3,686 | 29,488 | 3,686 | 15.885 h | 0 | 0.041090 |
+| Additional-SFT(B) | 3,686 | — | 231 SFT steps | 0.461 h | — | — |
 
 四个 adapter 均含 506 个有限 tensor、35,502,080 个 LoRA 参数。GRPO(A/B) 从同一 Agent-SFT(A) adapter 哈希起点独立训练，组大小、采样、候选组和优化配置一致。最终 artifact audit 检查了数据哈希、adapter 哈希、预算计数、非有限 tensor、五臂配置、每臂 1,319 条轨迹覆盖和 canonical manifest，结果为 `PASS`。
 
@@ -330,7 +353,48 @@ Base 的平均输出恰为生成上限 384 token，工具执行率为 0，说明
 
 *图 5　五臂严格成功率的同题配对差值与 95% bootstrap 区间。跨 0 的 GRPO(B)−GRPO(A) 不能解释为稳定优势。*
 
-### 7.5 结果解释
+### 7.5 行为漏斗与条件转化
+
+把 strict success 拆成“答对、执行工具、证据覆盖、最终严格成功”可以定位每条训练路线的损失发生在哪一层。下表的计数都来自同一 1,319 道 official test；条件转化率是诊断量，不是新的优化指标。
+
+| 模型 | Answer Acc | Tool Execution | Evidence Coverage | Strict Acc | Strict / Answer | Strict / Evidence |
+|---|---:|---:|---:|---:|---:|---:|
+| Base | 4.246% | 0.000% | 0.000% | 0.000% | 0.0% | — |
+| Agent-SFT(A) | 11.372% | 38.666% | 5.080% | 0.910% | 8.0% | 17.9% |
+| GRPO(A) | 14.936% | 42.835% | 7.809% | 2.578% | 17.3% | 33.0% |
+| GRPO(B) | 16.907% | 45.603% | 8.567% | 2.654% | 15.7% | 31.0% |
+| Additional-SFT(B) | 48.294% | 99.040% | 43.973% | 42.532% | 88.1% | 96.7% |
+
+由此可见：
+
+1. Base 约 4.25% 的答案正确全部是非 Agent 路径，answer-only 指标会把它的可用性高估；
+2. Agent-SFT(A) 的工具执行率已到 38.67%，但 strict 只有 0.91%，主要损失发生在“正确表达式与证据落地”；
+3. GRPO 把 `Strict/Answer` 从 8.0% 提高到约 16%–17%，说明它不仅提高猜中数字的概率，也改善了部分答案到可验证轨迹的转化；
+4. Additional-SFT(B) 的 `Strict/Evidence=96.7%`，表明一旦形成正确证据，几乎都能完成最终严格轨迹；剩余主要瓶颈已转到数学答案本身。
+
+### 7.6 训练动态、信号密度与成本
+
+| 诊断 | GRPO(A) | GRPO(B) | 含义 |
+|---|---:|---:|---|
+| 全程零方差组率 | 84.75% | 87.76% | 只有约 15.25% / 12.24% 的组产生组内排序信号 |
+| 末 200 组零方差率 | 82.0% | 84.5% | 后期略有改善，但稀疏性仍很高 |
+| 首 200 组 strict trajectory acc | 0.8125% | 0.9375% | 起点成功密度极低 |
+| 末 200 组 strict trajectory acc | 2.6875% | 2.2500% | 在线训练信号确实改善，不是完全空转 |
+| 首→末工具执行率 | 35.0%→42.22% | 38.81%→44.09% | 协议执行有渐进提升 |
+| 首→末 evidence coverage | 5.13%→9.19% | 5.75%→8.25% | 改善幅度仍不足以接近追加 SFT |
+| 全程平均 KL k3 | 0.00442 | 0.00274 | 策略漂移总体受控 |
+
+Additional-SFT(B) 用约 `0.461 h` 完成一轮，而 GRPO(B) 用约 `15.885 h`，观测 wall time 相差约 `34.5×`；GRPO(A) 约为 Agent-SFT(A) 的 `33.0×`。这不是严格 FLOPs 配平实验，不能当作普遍速度定律，但至少在本实现和硬件下，Additional-SFT 同时表现得更准确、更稳定且更便宜。原因是 SFT 每条样本都提供 token 级正确动作，而 GRPO 必须先付出 G=8 生成成本，且约 88% 的 B 组没有相对优势信号。
+
+### 7.7 效果量、数据新颖性与统计解释
+
+- GRPO(A) 相对 Agent-SFT(A) 为 `+1.668 pp`，相对提升约 `+183.3%`；GRPO(B) 为 `+1.744 pp`，相对提升约 `+191.7%`。相对数值很大是因为基线只有 0.910%，不能掩盖绝对成功率仍只有约 2.6%。
+- GRPO(B) 与 GRPO(A) 的 discordant pair 为 31 对 30，几乎完全对称；`+0.076 pp` 不支持“新题 B 的 RL 泛化更强”或“已见题 A 更容易”中的任何一个方向。
+- GRPO(A) 相对 Agent-SFT 的成功集合并非包含关系：34 道 treatment-only、12 道 control-only、0 道共同成功。GRPO 在重新分配成功题，而不是简单保留所有旧能力再增加新题。
+- GRPO(B) 与 Agent-SFT 有 1 道共同成功、34 道 treatment-only、11 道 control-only，同样存在遗忘或随机替换。因此总准确率上升不等于逐题单调改进。
+- 六项配对比较若作保守 Bonferroni 校正，阈值约为 `0.0083`；Agent-SFT vs Base、两条 GRPO vs Agent-SFT、Additional-SFT 的主要差异仍低于该阈值，B−A 仍完全不显著。该检查只缓解题目级多重比较，不解决单 training seed 限制。
+
+### 7.8 结果解释
 
 1. **Agent-SFT 是必要的行为冷启动。** 它把 Base 的 strict success 从 0 提升到 0.910%，并建立部分真实工具执行能力。
 2. **strict-GRPO 并非完全无效。** A/B 两条 GRPO 分支相对 Agent-SFT 分别提高 1.668/1.744 pp，题目级配对区间均高于 0。
@@ -344,16 +408,35 @@ Base 的平均输出恰为生成上限 384 token，工具执行率为 0，说明
 
 Track 1 的原计划是四臂 `Base / Pure GRPO / SFT only / SFT→GRPO`，用于直接研究 warm start 是否让课程式 Agent RL 更容易优化。它与 Track 2 的互斥 A/B 五臂实验回答不同问题。
 
-截至 2026-10-07 16:54（Asia/Shanghai）远程只读核对：
+截至 2026-10-07 17:58（Asia/Shanghai）远程只读核对：
 
 | 分支 | 当前状态 | 证据 | 是否进入正式结论 |
 |---|---|---|---|
 | SFT only | Adapter 已完成 | 完整 SFT 与控制 token 修复产物存在 | 暂不单独报告四臂效果 |
 | SFT→GRPO | **完成** | 6,726/6,726 groups，53,808 rollouts，6,726 updates | 等待统一四臂评测 |
-| Pure GRPO | **运行中** | 4,508/6,726 groups，36,064 rollouts，4,498 updates | 否 |
+| Pure GRPO | **运行中** | 4,615/6,726 groups，36,920 rollouts，4,605 updates | 否 |
 | Base | 无训练 | 作为最终统一评测基线 | 尚未形成 Track 1 正式矩阵 |
 
-Pure GRPO 当前 formal 指标仍显示 `tool_calls=0`，但 shaped reward 存在组内方差；它是在学习协议进度，尚不能被描述为已经学会工具调用。只有等 Pure GRPO 完成并执行同一冻结测试，Track 1 才能形成可比较结论。
+Pure GRPO 当前完成 `68.61%`，剩余 2,111 组。按已消耗 `167,428 s` 推算约 `36.28 s/group`，若吞吐保持不变，预计还需约 `21.3 h`；这只是线性运行估计，不包含异常、评测和最终审计。
+
+运行态检查同时确认 `track1-pure-full-bounded-kl` tmux 会话仍存在，单个 Python 计算进程占用约 14,618 MiB GPU 显存；metrics 时间戳持续更新，因此不是挂起或只剩空会话。
+
+为了避免以单个 batch 误判，对前 200 组、末 200 组和全程 4,615 组做了只读聚合：
+
+| Pure GRPO 指标 | 前 200 组 | 末 200 组 | 全程均值 |
+|---|---:|---:|---:|
+| Shaped reward | -2.342 | +0.191 | -0.820 |
+| Answer accuracy | 5.38% | 41.94% | 23.23% |
+| Protocol progress | 0.708 | 1.441 | 1.391 |
+| Group reward std | 0.786 | 1.180 | 0.992 |
+| Strict task accuracy | 0% | 0% | 0% |
+| Tool execution rate | 0% | 0% | 0.0027% |
+| Action tokens/group | 3,054.8 | 3,072.0 | 3,065.1 |
+| KL k3 | 0.0379 | 0.0549 | 0.0391 |
+
+这说明 shaped curriculum 正在提高答案命中和“接近协议”的行为，但尚未跨过可执行工具边界：全程只有 2 个 group 出现工具调用，末 200 组仍为 0，绝大多数轨迹继续消耗 `8×384=3,072` 个 action token 并撞满长度。10 个候选组因组级 KL 超过 10 被安全拒绝，约占 `0.217%`；它们均为孤立重尾事件，下一组可以继续更新，没有连续拒绝或非有限值。当前运行健康，但“训练稳定”不等于“Agent 能力已经形成”。
+
+作为对照，已完成的 SFT→GRPO 在训练 prompt 上从前 200 组到末 200 组的 strict trajectory accuracy 由 51.0% 升到 77.0%，工具执行率由 99.32% 升到 99.94%，末 200 组 evidence coverage 为 77.88%。这些是训练集在线指标，只证明 warm start 让可优化行为高密度存在，不能替代冻结 test 泛化结果。
 
 ## 9. 综合分析
 
@@ -365,7 +448,33 @@ Pure GRPO 当前 formal 指标仍显示 `tool_calls=0`，但 shaped reward 存�
 - **监督和 RL 的比较必须明确 oracle 条件。** Additional-SFT(B) 的强结果来自密集且可靠的 action oracle，不能与没有 oracle 的现实任务直接类比。
 - **评测必须 fail-closed。** 数据哈希、分片数、题目覆盖、adapter hash、预算、finite tensor 和 manifest 任一不满足，结果都不能进入正式统计。
 
-### 9.2 可以据实声称的结论
+### 9.2 协议能力、数学能力与证据能力必须分开看
+
+本项目的指标不是同一件事的重复测量，而是一个串联成功链：
+
+```text
+进入格式 → 生成合法 tool call → 工具执行 → 得到正确中间结果
+→ 最终答案正确 → 答案被执行证据支撑 → strict success
+```
+
+Stage 1 的协议与工具执行已经饱和，因此继续优化 parser 或格式 reward 的边际价值很低；Stage 2 Agent-SFT/GRPO 的工具执行只有 39%–46%，协议仍是重要瓶颈；Additional-SFT 把协议层提升到约 99%，随后数学答案准确率成为新的上限。不同阶段不能只用同一个“格式问题”解释。
+
+### 9.3 KL、输出长度与策略退化
+
+- Stage 1 DAPO 的 test KL 为 `0.01453±0.00131`，伴随输出缩短 9.09% 和准确率上升，属于受控改变而非长度膨胀。
+- Track 2 GRPO(A/B) 的全程平均 KL 分别约 0.00442/0.00274，最大审计 KL 约 0.041，且 0 次安全拒绝；正式 strict-GRPO 数值稳定。
+- Track 1 Pure 的常规 KL 均值仍小，但存在 10 个大于阈值的重尾组。安全门阻止异常组反向传播，因此不能只看平均 KL，也必须保留尾部诊断。
+- Base 与 Pure 大量轨迹撞满 384 token；SFT 后平均 action token 显著下降。收束能力本身是 Agent warm start 的关键收益。
+
+### 9.4 监督效率与 RL 适用条件
+
+Additional-SFT 的优势不能简单归结为“算法更强”，因为它拥有 GRPO 不拥有的 action oracle。但在 oracle 已经存在的本项目条件下，拒绝使用这些标签、改用 8 倍在线采样并没有资源优势。更合理的工程路线是：先用全部可靠 oracle 建立高密度行为分布，再把 RL 用于没有 oracle、需要探索、需要优化不可微目标或需要超越示范的部分。
+
+### 9.5 跨阶段比较的边界
+
+MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区间，不能据此说模型规模没有作用。两阶段的 base checkpoint、SFT 数据覆盖、prompt 模板、adapter、reward curriculum、decode seeds 和训练预算都不同。真正可比较的是各自阶段内部的受控增量：Stage 1 比较算法目标，Track 2 比较训练路线，Track 1 比较是否 warm start。
+
+### 9.6 可以据实声称的结论
 
 1. 项目实现了真正的多轮 calculator Agent-SFT → Agentic RL → frozen validation/test 闭环；
 2. Stage 1 完成四算法、三训练种子、共同候选预算的正式比较，DAPO 获得稳定的小幅增益；
@@ -373,7 +482,7 @@ Pure GRPO 当前 formal 指标仍显示 `tool_calls=0`，但 shaped reward 存�
 4. 正式成功不能由格式奖励、猜答案或伪造工具结果获得；
 5. 测试、权重、数据边界和结果产物均可审计。
 
-### 9.3 不能声称的结论
+### 9.7 不能声称的结论
 
 1. 不能声称达到 GSM8K SOTA 或模型已具备强数学推理能力；
 2. 不能把工具执行率接近 100% 等同于解题正确；
@@ -395,7 +504,7 @@ Pure GRPO 当前 formal 指标仍显示 `tool_calls=0`，但 shaped reward 存�
 | Stage 2 Track 2 五臂训练 | 完成 | A/B 边界与预算一致 |
 | Stage 2 Track 2 1,319 题评测与最终审计 | 完成 | Audit PASS |
 | Stage 2 Track 1 SFT→GRPO | 完成训练 | 等待完整四臂统一评测 |
-| Stage 2 Track 1 Pure GRPO | 运行中 | 4,508/6,726 groups |
+| Stage 2 Track 1 Pure GRPO | 运行中 | 4,615/6,726 groups；10 次有界 KL 拒绝 |
 
 若继续推进，优先级应为：
 

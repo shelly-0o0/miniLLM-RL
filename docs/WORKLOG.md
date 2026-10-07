@@ -211,3 +211,16 @@
 7. 新增 `scripts/analyze_gsm8k_stage1.py`：硬审计预算、轨迹计数、checkpoint finite/变化、两层聚合、paired bootstrap、失败归因和 SHA-256 evidence bundle。
 8. 新增 `scripts/run_gsm8k_stage1_final_test.sh` 固化不可覆盖的最终测试参数；完整结论、命令、异常和限制写入 `docs/STAGE1_GSM8K_FINAL_REPORT.md`。
 9. 使用可写 Hugging Face cache 重新运行全仓回归，67/67 通过。Stage 1 的四算法正式矩阵、统计分析与最终测试至此完成；PPO 未进入本轮锁定矩阵，不作 PPO 效果结论。
+
+## 2026-10-07：结果多维分析与 Track 1 进程复核
+
+1. 远程只读核对 Track 2 最终审计仍为 `PASS`：GRPO(A/B) 各完成 3,686 groups、29,488 rollouts、3,686 updates，0 次 KL 拒绝；五臂 official test 每臂 1,319 题。
+2. 聚合 Track 2 全程 metrics，而不是只看最后一行：A/B 全程零方差组率为 84.75%/87.76%，末 200 组为 82.0%/84.5%；strict trajectory accuracy 从首 200 组的 0.8125%/0.9375% 上升到末 200 组的 2.6875%/2.2500%。
+3. 补充行为漏斗：Agent-SFT(A)、GRPO(A)、GRPO(B)、Additional-SFT(B) 的 `Strict/Answer` 分别为 8.0%、17.3%、15.7%、88.1%，`Strict/Evidence` 分别为 17.9%、33.0%、31.0%、96.7%。
+4. 补充计算成本：Agent-SFT(A)/Additional-SFT(B) 各约 0.461 h；GRPO(A/B) 分别约 15.208/15.885 h。在当前实现中，在线 RL 约慢 33–35 倍，但这不是严格 FLOPs 配平实验。
+5. Stage 1 补充相对效果：DAPO test strict 相对 Agent-SFT 提升 50.96%，evidence coverage 提升 47.94%，平均输出缩短 9.09%；三个训练 seed 的 strict 变异系数约 9.18%。
+6. 复核 Track 1：SFT→GRPO 已完整结束 6,726 groups；Pure GRPO 在 2026-10-07 17:58（Asia/Shanghai）运行到 4,615/6,726 groups、4,605 updates，仍有 tmux 和单 GPU Python 进程。
+7. Pure GRPO 前 200→末 200 组的 shaped reward 从 -2.342 升到 +0.191、answer accuracy 从 5.38% 升到 41.94%、protocol progress 从 0.708 升到 1.441，但 strict accuracy 仍为 0，末 200 组工具调用仍为 0；课程信号在改善，Agent 行为尚未形成。
+8. Pure 全程只有 2 个 group 出现工具调用，10/4,615 个候选组因组级 KL 重尾超过阈值被有界拒绝；均为孤立事件，下一组继续更新，无连续拒绝或非有限值。按当前平均 36.28 s/group 估计仍需约 21.3 h，未包含评测与审计。
+9. 将上述效果量、行为漏斗、训练动态、效率、KL、统计边界和跨阶段解释写入 `PROJECT_SUMMARY_REPORT.md` 及两个阶段正式报告。
+10. 报告修改后重新运行全仓回归，68/68 通过；`git diff --check` 通过。
