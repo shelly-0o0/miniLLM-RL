@@ -2,7 +2,7 @@
 
 一个面向 GSM8K 数学 Agentic RL 后训练的可复现实验项目。
 
-本项目以 MiniMind-64M 作为 Stage 1 基座，使用统一的 GSM8K 数据、calculator 环境和数学 verifier，研究 PPO、GRPO、CISPO、DAPO、GSPO 的 Agentic RL 后训练；Stage 2 将同一套多轮工具环境迁移到 Qwen3-4B-Base。完成的 Track 2 主线以互斥 A/B 数据比较 Agent-SFT、GRPO 和 Additional-SFT；另保留 Pure GRPO 与 SFT → GRPO 长程实验作为冷启动研究。项目重点是验证训练闭环、奖励信号、冷启动作用和跨规模迁移，不以 GSM8K SOTA 为目标。
+本项目以 MiniMind-64M 作为 Stage 1 基座，使用统一的 GSM8K 数据、calculator 环境和数学 verifier，研究 PPO、GRPO、CISPO、DAPO、GSPO 的 Agentic RL 后训练；Stage 2 将同一套多轮工具环境迁移到 Qwen3-4B-Base。完成的 Track 2 主线以互斥 A/B 数据比较 Agent-SFT、GRPO 和 Additional-SFT；Track 1 的 SFT → GRPO 已完成，Pure GRPO 在 42,904 条 cold-start rollout 后因始终未形成可执行工具行为而主动终止并作为负结果保留。项目重点是验证训练闭环、奖励信号、冷启动作用和跨规模迁移，不以 GSM8K SOTA 为目标。
 
 ## 项目阶段
 
@@ -58,7 +58,8 @@ miniLLM-RL/
 6. [Stage 2 完整搭建与算法记录](docs/STAGE2_QWEN3_4B_BUILD_LOG.md)
 7. [Stage 2 Track 2 最终报告](docs/STAGE2_TRACK2_FINAL_REPORT.md)
 8. [项目总报告：算法、过程、结果与结论](docs/PROJECT_SUMMARY_REPORT.md)
-9. [可发布实验结果索引](results/README.md)
+9. [Stage 2 Track 1 Pure GRPO 终止报告](docs/STAGE2_TRACK1_TERMINATION_REPORT.md)
+10. [可发布实验结果索引](results/README.md)
 
 旧的 MiniMind/RL 研究报告保留在 `docs/foundation_model_interview/`，作为历史实现和实验审计材料，不代表新的 GSM8K 主线已经完成。
 
@@ -134,6 +135,8 @@ bash scripts/run_qwen_stage2.sh eval_test
 
 训练入口保留真实的 `calculate_math` 调用、工具执行结果回填、第二轮生成和严格 RLVR verifier，不是只约束答案文本格式的单轮 GRPO。完整原理、显存设计、日志字段、恢复规则和执行顺序见 [Stage 2 完整记录](docs/STAGE2_QWEN3_4B_BUILD_LOG.md)。
 
+Track 1 最终没有形成完整四臂矩阵：SFT→GRPO 已完成并在冻结 test shard 上达到 67.475% strict accuracy；Pure GRPO 在 5,363/6,726 组时停止，最后 200 组 strict/tool execution 仍均为 0。该负结果、原始日志哈希和结论边界见 [Pure GRPO 终止报告](docs/STAGE2_TRACK1_TERMINATION_REPORT.md)。
+
 ### Track 2：互斥 A/B 数据实验
 
 Track 2 从 Agent-SFT(A) 的同一 adapter 分叉，比较 GRPO(A)、GRPO(B) 与 Additional-SFT(B)，用于区分已见题 RL、新题 RL 和继续监督学习。先运行：
@@ -151,6 +154,24 @@ bash scripts/run_qwen_track2.sh smoke_grpo_b
 数据边界、算法公式、完整执行顺序、监控和结论限制见 [Track 2 完整记录](docs/TRACK2_AB_AGENTIC_RL_BUILD_LOG.md)。
 
 Track 2 已完成五臂 1,319 题官方测试并通过 fail-closed 审计。严格任务成功率为 Base 0%、Agent-SFT(A) 0.910%、GRPO(A) 2.578%、GRPO(B) 2.654%、Additional-SFT(B) 42.532%。完整配对统计与结论边界见 [Track 2 最终报告](docs/STAGE2_TRACK2_FINAL_REPORT.md)。
+
+### SVAMP 跨数据集 warm-start GRPO
+
+SVAMP 实验从 Track 2 的 `Additional-SFT(B)` adapter 出发，只使用 SVAMP 作者提供的交叉验证文件：fold 0–3 构成 816 题训练集，fold 4 构成 184 题冻结 holdout，并按 `group_nums` 检查变体家族无交叉。
+
+```bash
+bash scripts/run_svamp_warm_grpo.sh download
+bash scripts/run_svamp_warm_grpo.sh prepare
+bash scripts/run_svamp_warm_grpo.sh audit
+bash scripts/run_svamp_warm_grpo.sh probe
+bash scripts/run_svamp_warm_grpo.sh eval_zero_shot
+bash scripts/run_svamp_warm_grpo.sh grpo
+bash scripts/run_svamp_warm_grpo.sh eval_grpo
+bash scripts/run_svamp_warm_grpo.sh merge_eval
+bash scripts/run_svamp_warm_grpo.sh audit_results
+```
+
+该协议是从作者 CV folds 派生的项目内 train/holdout，不应写成 SVAMP 官方 train/test。源 revision、行数与 SHA-256 固定在 `dataset/manifests/svamp_agent.json`。
 
 ## 我的主要工作
 

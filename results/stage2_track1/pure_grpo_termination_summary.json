@@ -1,0 +1,72 @@
+{
+  "status": "MANUALLY_TERMINATED",
+  "run_name": "qwen3_4b_pure_grpo_s42",
+  "terminated_at": "2026-10-08T01:31:23+08:00",
+  "termination_reason": "After 42,904 on-policy trajectories, the final 200 groups still had zero strict success, zero valid tool calls, and full 3,072-token action saturation. Continuing the remaining budget was judged unlikely to answer the cold-start question more clearly.",
+  "protocol": {
+    "model": "Qwen/Qwen3-4B-Base",
+    "training_seed": 42,
+    "initialization": "fresh zero-initialized LoRA",
+    "reward_mode": "shaped",
+    "group_size": 8,
+    "planned_candidate_groups": 6726,
+    "kl_gate_threshold": 10.0
+  },
+  "terminal_counters": {
+    "candidate_groups_consumed": 5363,
+    "progress_fraction": 0.7973535533749628,
+    "candidate_trajectories": 42904,
+    "optimizer_updates": 5352,
+    "safety_rejections": 11,
+    "wall_time_seconds": 194575.12651991844
+  },
+  "first_200_groups": {
+    "shaped_reward": -2.354097490310669,
+    "strict_task_accuracy": 0.0,
+    "answer_accuracy": 0.05375,
+    "format_valid_rate": 0.0,
+    "tool_execution_success_rate": 0.0,
+    "tool_evidence_coverage_rate": 0.0,
+    "protocol_progress": 0.7117343770340085,
+    "action_tokens_per_group": 3070.135,
+    "kl_k3": 0.03787722505140484
+  },
+  "last_200_groups": {
+    "shaped_reward": 0.2503992858529091,
+    "strict_task_accuracy": 0.0,
+    "answer_accuracy": 0.433125,
+    "format_valid_rate": 0.0,
+    "tool_execution_success_rate": 0.0,
+    "tool_evidence_coverage_rate": 0.0,
+    "protocol_progress": 1.4675625044107437,
+    "action_tokens_per_group": 3072.0,
+    "kl_k3": 0.05709560086484999
+  },
+  "full_observed_run": {
+    "shaped_reward": -0.6739201660383554,
+    "strict_task_accuracy": 0.0,
+    "answer_accuracy": 0.25997290732436473,
+    "format_valid_rate": 0.00002335575485799701,
+    "tool_execution_success_rate": 0.00002335575485799701,
+    "tool_evidence_coverage_rate": 0.0,
+    "protocol_progress": 1.4032447022832764,
+    "action_tokens_per_group": 3071.749813153961,
+    "tool_calls_per_group": 0.0005605381165919282,
+    "kl_k3": 0.041580362774510445
+  },
+  "safety": {
+    "all_recorded_numeric_metrics_finite": true,
+    "max_consecutive_rejections": 1,
+    "max_rejected_group_kl_k3": 157931.453125,
+    "last_rejected_candidate_group": 5118
+  },
+  "artifacts": {
+    "remote_metrics_path": "/root/Mini-RL-stage2/out/metrics/qwen3_4b_pure_grpo_s42.jsonl",
+    "remote_metrics_sha256": "89e0021407cbfc6ec26cb04bf91ca90f72b1f0c4ee4f8ac9039622d32f91c6d0",
+    "remote_log_path": "/root/Mini-RL-stage2/out/logs/qwen3_4b_pure_grpo_s42.log",
+    "remote_log_sha256": "c488307a6a0d2108e55563806e435af2b2131981404ec45b5f442759fd89b0c3",
+    "terminal_adapter_exported": false,
+    "rolling_checkpoint_retained": true
+  },
+  "conclusion_boundary": "This is evidence that the tested cold-start shaped-GRPO route failed to acquire executable agent behavior within 79.74% of the planned budget. It is not a completed four-arm Track 1 comparison and the rolling checkpoint is excluded from formal test claims."
+}

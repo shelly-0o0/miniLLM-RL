@@ -32,6 +32,12 @@
 
 完整解释、图表和结论边界见 [`docs/PROJECT_SUMMARY_REPORT.md`](../docs/PROJECT_SUMMARY_REPORT.md)。数据切分哈希见 `dataset/manifests/`。
 
+## Stage 2 Track 1
+
+`stage2_track1/pure_grpo_termination_summary.json` 保存 cold-start Pure GRPO 的人工终止记录。该 run 在 5,363/6,726 组时停止；它是可审计的负结果，不是完成的四臂 Track 1 比较，也没有终态 adapter 或 official-test 数字。
+
+完整解释见 [`docs/STAGE2_TRACK1_TERMINATION_REPORT.md`](../docs/STAGE2_TRACK1_TERMINATION_REPORT.md)。
+
 ## 完整性
 
 仓库根目录执行以下命令可以核对本目录内容：

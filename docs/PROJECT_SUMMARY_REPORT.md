@@ -3,8 +3,8 @@
 > 报告日期：2026-10-07
 > 项目仓库：`Mini-RL` / `gsm8k-agentic-rl`
 > 正式完成范围：Stage 1 MiniMind-64M；Stage 2 Track 2 Qwen3-4B
-> 进行中范围：Stage 2 Track 1 Pure GRPO
-> 最终回归：68/68 tests PASS
+> 负结果范围：Stage 2 Track 1 Pure GRPO 于 79.74% 预算处人工终止
+> 最终回归：72/72 tests PASS
 > Stage 2 Track 2 结果审计：PASS
 
 ## 1. 执行摘要
@@ -22,7 +22,7 @@
 |---|---:|---|---:|---|
 | Stage 1 | MiniMind 63.91M | 四种 group-relative RL 算法谁更优 | DAPO test strict 3.3190% | DAPO 相对 Agent-SFT +1.1204 pp |
 | Stage 2 Track 2 | Qwen3-4B + QLoRA | Agent warm start、已见/未见 RL 数据与追加 SFT 的差异 | Additional-SFT(B) strict 42.5322% | GRPO 有小幅增益，但可靠 oracle 下追加 SFT 明显更强 |
-| Stage 2 Track 1 | Qwen3-4B + QLoRA | Base / Pure GRPO / SFT only / SFT→GRPO | 尚未形成完整四臂结果 | SFT→GRPO 已完成；Pure GRPO 仍在运行，不纳入结论 |
+| Stage 2 Track 1 | Qwen3-4B + QLoRA | Base / Pure GRPO / SFT only / SFT→GRPO | 未形成完整四臂结果 | SFT→GRPO 已完成；Pure 在 42,904 条 rollout 后主动终止并保留为负结果 |
 
 ![项目技术链路与两阶段实验](assets/project_summary/project_flow.png)
 
@@ -404,39 +404,37 @@ Additional-SFT(B) 用约 `0.461 h` 完成一轮，而 GRPO(B) 用约 `15.885 h`�
 
 这不是“RL 失败”或“SFT 永远优于 RL”的普遍结论。它只说明在 Qwen3-4B-Base、当前 LoRA 配置、single training seed、strict reward 和高质量 oracle 可用的条件下，追加监督比稀疏 on-policy reward 更有效。
 
-## 8. Stage 2 Track 1 当前状态
+## 8. Stage 2 Track 1 终止状态
 
-Track 1 的原计划是四臂 `Base / Pure GRPO / SFT only / SFT→GRPO`，用于直接研究 warm start 是否让课程式 Agent RL 更容易优化。它与 Track 2 的互斥 A/B 五臂实验回答不同问题。
-
-截至 2026-10-07 17:58（Asia/Shanghai）远程只读核对：
+Track 1 的原计划是四臂 `Base / Pure GRPO / SFT only / SFT→GRPO`，用于直接研究 warm start 是否让课程式 Agent RL 更容易优化。它与 Track 2 的互斥 A/B 五臂实验回答不同问题。Pure 分支于 2026-10-08 01:31（Asia/Shanghai）主动终止，因此 Track 1 不再被描述为进行中，也不形成完整四臂正式结果。
 
 | 分支 | 当前状态 | 证据 | 是否进入正式结论 |
 |---|---|---|---|
 | SFT only | Adapter 已完成 | 完整 SFT 与控制 token 修复产物存在 | 暂不单独报告四臂效果 |
-| SFT→GRPO | **完成** | 6,726/6,726 groups，53,808 rollouts，6,726 updates | 等待统一四臂评测 |
-| Pure GRPO | **运行中** | 4,615/6,726 groups，36,920 rollouts，4,605 updates | 否 |
+| SFT→GRPO | **完成** | 6,726/6,726 groups；冻结 test shard strict 67.475% | 可报告单臂结果，不归因全部增益给 GRPO |
+| Pure GRPO | **人工终止** | 5,363/6,726 groups，42,904 rollouts，5,352 updates | 只作为 cold-start 负结果 |
 | Base | 无训练 | 作为最终统一评测基线 | 尚未形成 Track 1 正式矩阵 |
 
-Pure GRPO 当前完成 `68.61%`，剩余 2,111 组。按已消耗 `167,428 s` 推算约 `36.28 s/group`，若吞吐保持不变，预计还需约 `21.3 h`；这只是线性运行估计，不包含异常、评测和最终审计。
+Pure 共完成计划预算的 `79.735%`，消耗 `194,575 s`（54.05 h）。停止后确认 tmux、训练 PID 和 GPU 3 显存占用均退出；滚动 checkpoint 与原始证据保留，但没有导出终态 adapter。
 
-运行态检查同时确认 `track1-pure-full-bounded-kl` tmux 会话仍存在，单个 Python 计算进程占用约 14,618 MiB GPU 显存；metrics 时间戳持续更新，因此不是挂起或只剩空会话。
-
-为了避免以单个 batch 误判，对前 200 组、末 200 组和全程 4,615 组做了只读聚合：
+为了避免以单个 batch 误判，对前 200 组、末 200 组和全程 5,352 个正常更新记录做了聚合：
 
 | Pure GRPO 指标 | 前 200 组 | 末 200 组 | 全程均值 |
 |---|---:|---:|---:|
-| Shaped reward | -2.342 | +0.191 | -0.820 |
-| Answer accuracy | 5.38% | 41.94% | 23.23% |
-| Protocol progress | 0.708 | 1.441 | 1.391 |
-| Group reward std | 0.786 | 1.180 | 0.992 |
+| Shaped reward | -2.354 | +0.250 | -0.674 |
+| Answer accuracy | 5.375% | 43.313% | 25.997% |
+| Protocol progress | 0.712 | 1.468 | 1.403 |
+| Group reward std | 0.790 | 1.139 | 1.013 |
 | Strict task accuracy | 0% | 0% | 0% |
-| Tool execution rate | 0% | 0% | 0.0027% |
-| Action tokens/group | 3,054.8 | 3,072.0 | 3,065.1 |
-| KL k3 | 0.0379 | 0.0549 | 0.0391 |
+| Tool execution rate | 0% | 0% | 0.00234% |
+| Action tokens/group | 3,070.1 | 3,072.0 | 3,071.7 |
+| KL k3 | 0.0379 | 0.0571 | 0.0416 |
 
-这说明 shaped curriculum 正在提高答案命中和“接近协议”的行为，但尚未跨过可执行工具边界：全程只有 2 个 group 出现工具调用，末 200 组仍为 0，绝大多数轨迹继续消耗 `8×384=3,072` 个 action token 并撞满长度。10 个候选组因组级 KL 超过 10 被安全拒绝，约占 `0.217%`；它们均为孤立重尾事件，下一组可以继续更新，没有连续拒绝或非有限值。当前运行健康，但“训练稳定”不等于“Agent 能力已经形成”。
+这说明 shaped curriculum 提高了答案命中和“接近协议”的行为，却没有跨过可执行工具边界：末 200 组工具调用仍为 0，轨迹继续消耗 `8×384=3,072` 个 action token 并撞满长度。11 个候选组因组级 KL 超过 10 被安全拒绝；它们均为孤立重尾事件，最长连续拒绝为 1，没有非有限值。终止原因是继续计算的信息收益很低，而不是训练进程崩溃。
 
-作为对照，已完成的 SFT→GRPO 在训练 prompt 上从前 200 组到末 200 组的 strict trajectory accuracy 由 51.0% 升到 77.0%，工具执行率由 99.32% 升到 99.94%，末 200 组 evidence coverage 为 77.88%。这些是训练集在线指标，只证明 warm start 让可优化行为高密度存在，不能替代冻结 test 泛化结果。
+作为对照，已完成的 SFT→GRPO 在训练 prompt 上从前 200 组到末 200 组的 strict trajectory accuracy 由 51.0% 升到 77.0%，工具执行率由 99.32% 升到 99.94%，末 200 组 evidence coverage 为 77.88%；冻结 test shard strict accuracy 为 67.475%。这些证据支持 warm start 让可优化行为高密度存在，但因为 Pure 未完成、SFT-only/Base 未作 canonical merge，不能写成严格预算配平的四臂因果结论。
+
+完整终止依据、发布边界和原始日志哈希见 `docs/STAGE2_TRACK1_TERMINATION_REPORT.md`。
 
 ## 9. 综合分析
 
@@ -463,7 +461,7 @@ Stage 1 的协议与工具执行已经饱和，因此继续优化 parser 或格�
 
 - Stage 1 DAPO 的 test KL 为 `0.01453±0.00131`，伴随输出缩短 9.09% 和准确率上升，属于受控改变而非长度膨胀。
 - Track 2 GRPO(A/B) 的全程平均 KL 分别约 0.00442/0.00274，最大审计 KL 约 0.041，且 0 次安全拒绝；正式 strict-GRPO 数值稳定。
-- Track 1 Pure 的常规 KL 均值仍小，但存在 10 个大于阈值的重尾组。安全门阻止异常组反向传播，因此不能只看平均 KL，也必须保留尾部诊断。
+- Track 1 Pure 的常规 KL 均值仍小，但存在 11 个大于阈值的重尾组，最大被拒绝组 KL 达 157,931.45。安全门阻止异常组反向传播，因此不能只看平均 KL，也必须保留尾部诊断。
 - Base 与 Pure 大量轨迹撞满 384 token；SFT 后平均 action token 显著下降。收束能力本身是 Agent warm start 的关键收益。
 
 ### 9.4 监督效率与 RL 适用条件
@@ -488,7 +486,7 @@ MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区
 2. 不能把工具执行率接近 100% 等同于解题正确；
 3. Stage 2 Track 2 只有一个 training seed，题目级区间不能替代跨训练 seed 方差；
 4. Additional-SFT 与 GRPO 没有做严格 wall-clock/FLOPs 等预算配平；
-5. 不能在 Track 1 Pure GRPO 完成前声称 Pure-vs-warm-start 四臂结论；
+5. Track 1 Pure GRPO 已人工终止，不能声称存在完成的 Pure-vs-warm-start 四臂结论；
 6. official test 已用于最终报告，不应继续用它选择学习率、reward 或 checkpoint。
 
 ## 10. 完成度与后续优先级
@@ -503,16 +501,15 @@ MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区
 | Qwen3-4B QLoRA Agent-SFT/GRPO 基础设施 | 完成 | 支持 adapter 与真实工具 rollout |
 | Stage 2 Track 2 五臂训练 | 完成 | A/B 边界与预算一致 |
 | Stage 2 Track 2 1,319 题评测与最终审计 | 完成 | Audit PASS |
-| Stage 2 Track 1 SFT→GRPO | 完成训练 | 等待完整四臂统一评测 |
-| Stage 2 Track 1 Pure GRPO | 运行中 | 4,615/6,726 groups；10 次有界 KL 拒绝 |
+| Stage 2 Track 1 SFT→GRPO | 完成训练与单臂 test shard | strict 67.475%；无完整四臂 merge |
+| Stage 2 Track 1 Pure GRPO | 人工终止 | 5,363/6,726 groups；11 次有界 KL 拒绝；无终态 adapter |
 
 若继续推进，优先级应为：
 
-1. 等待 Track 1 Pure GRPO 完成，不中途用运行指标做效果结论；
-2. 对 Base、SFT only、Pure GRPO、SFT→GRPO 使用同一冻结 test 配置；
-3. 对 Track 1 执行 canonical merge、题目覆盖检查和 fail-closed audit；
-4. 若有额外预算，优先补 Stage 2 Track 2 的 training seeds，而不是反复在 official test 上调参；
-5. 新的算法改进应在新的 validation 或嵌套验证上进行，重点优化算式规划、证据利用和非零方差组比例。
+1. 不恢复当前 Pure checkpoint；若重开 cold-start 研究，应预先注册新的协议可达性门槛与早停规则；
+2. 若要完成 Track 1 四臂比较，必须重新定义并完整运行 Pure 分支，再统一评测 Base、SFT only、Pure GRPO 和 SFT→GRPO；
+3. 若有额外预算，优先补 Stage 2 Track 2 的 training seeds，而不是反复在 official test 上调参；
+4. 新的算法改进应在新的 validation 或嵌套验证上进行，重点优化结构化动作可达性、算式规划、证据利用和非零方差组比例。
 
 ## 11. 结果与证据索引
 
@@ -522,6 +519,7 @@ MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区
 - `docs/STAGE2_TRACK2_FINAL_REPORT.md`：Stage 2 Track 2 正式报告；
 - `docs/TRACK2_AB_AGENTIC_RL_BUILD_LOG.md`：Track 2 设计、实现和逐步工作记录；
 - `docs/STAGE2_QWEN3_4B_BUILD_LOG.md`：Qwen3-4B Stack/Track 1 搭建记录；
+- `docs/STAGE2_TRACK1_TERMINATION_REPORT.md`：Pure GRPO 终止证据与负结果边界；
 - `docs/WORKLOG.md`：项目时间线与关键修复记录。
 
 ### 11.2 Stage 1 机器可读结果
@@ -545,8 +543,14 @@ MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区
 | `out/run_meta/qwen3_stage2_track2_results_audit.json` | 数据、训练、adapter、轨迹和 manifest 最终审计 |
 | `dataset/manifests/gsm8k_track2.json` | A/B/test 行数、边界和内容哈希 |
 
+### 11.4 Stage 2 Track 1 终止证据
+
+| 文件 | 内容 |
+|---|---|
+| `results/stage2_track1/pure_grpo_termination_summary.json` | 终止计数、前后窗口指标、安全拒绝和原始日志哈希 |
+
 ## 12. 最终结论
 
-项目已完成两个可以独立审计的 Agentic RL 实验层级。Stage 1 证明：在已经掌握工具协议的小模型上，group-relative RL 能带来真实但有限的提升，DAPO 在相同候选预算下表现最好。Stage 2 Track 2 进一步证明：Agent-SFT 提供了必要的行为先验，strict-GRPO 能继续改进，但奖励稀疏使有效学习组不足；当可靠的完整 Agent oracle 可用时，继续监督学习在当前设置下远强于单纯依赖在线严格奖励。
+项目已完成两个可以独立审计的 Agentic RL 正式实验层级，并保留一个可审计的冷启动负结果。Stage 1 证明：在已经掌握工具协议的小模型上，group-relative RL 能带来真实但有限的提升，DAPO 在相同候选预算下表现最好。Stage 2 Track 2 进一步证明：Agent-SFT 提供了必要的行为先验，strict-GRPO 能继续改进，但奖励稀疏使有效学习组不足；当可靠的完整 Agent oracle 可用时，继续监督学习在当前设置下远强于单纯依赖在线严格奖励。Track 1 Pure 则表明，dense shaping 可以改善答案和局部协议分数，却未必能让 base model 跨过结构化工具执行边界。
 
 最重要的项目成果不是单一准确率数字，而是一条可复现、可归因、可拒绝伪成功的工程与实验链：数据边界明确，工具在环境中真实执行，reward 与证据绑定，训练预算可核验，validation 与 test 职责分离，结果经过逐题统计与 fail-closed 审计。这使后续对 reward curriculum、模型规模、工具规划或多 seed 稳定性的研究有了可信基线。

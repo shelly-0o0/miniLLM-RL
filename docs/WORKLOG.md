@@ -224,3 +224,11 @@
 8. Pure 全程只有 2 个 group 出现工具调用，10/4,615 个候选组因组级 KL 重尾超过阈值被有界拒绝；均为孤立事件，下一组继续更新，无连续拒绝或非有限值。按当前平均 36.28 s/group 估计仍需约 21.3 h，未包含评测与审计。
 9. 将上述效果量、行为漏斗、训练动态、效率、KL、统计边界和跨阶段解释写入 `PROJECT_SUMMARY_REPORT.md` 及两个阶段正式报告。
 10. 报告修改后重新运行全仓回归，68/68 通过；`git diff --check` 通过。
+
+## 2026-10-08：终止 Track 1 Pure GRPO 并固化负结果
+
+1. 在 `pure_grpo` 运行到 5,363/6,726 candidate groups 时发送中断，确认 tmux、训练 PID 和 GPU 3 显存占用全部退出；没有影响 GPU 0 上独立运行的 SVAMP 实验。
+2. 终止时共生成 42,904 条 rollout、完成 5,352 次更新，wall time 约 54.05 h；滚动 checkpoint、metrics、日志和 11 份 KL safety-rejection 诊断均保留，未导出终态 adapter。
+3. Pure 的答案准确率从前 200 组 5.375% 升到末 200 组 43.3125%，shaped reward 从 -2.354 升到 +0.250；但末 200 组 strict、format、工具调用、工具执行和 evidence coverage 全部为 0，且每组耗尽 3,072 action tokens。
+4. 11 个 KL 重尾组均在 backward 前被拒绝，最长连续拒绝为 1，最大被拒绝组 KL 为 157,931.45；停止原因是行为不可达和继续计算的低信息收益，而不是进程或数值崩溃。
+5. 新增 `docs/STAGE2_TRACK1_TERMINATION_REPORT.md` 和机器可读 `results/stage2_track1/pure_grpo_termination_summary.json`，明确该结果支持 cold-start 失败机制，但不能冒充完成的四臂 Track 1 或 Pure 终态 test。

@@ -77,3 +77,17 @@ calculator 必须使用安全的 AST 白名单执行器，只允许数字、括�
 - rollout token 数和耗时
 
 训练集上的 reward 不能替代固定 test/holdout 上的准确率。DAPO 的 accepted-group 统计也不能直接与普通随机采样组比较。
+
+## SVAMP 派生协议
+
+跨数据集实验使用 `arkilpatel/SVAMP` revision `78e727689e1c1bebfc4be39c446898e8e10b0518`。SVAMP 本身是 1,000 题 challenge set，没有本项目可以直接采用的官方 train/test；因此这里只能声称使用作者 augmented cross-validation folds 派生的项目内协议：
+
+```text
+fold 0–3 → 816 题 train
+fold 4   → 184 题 frozen holdout
+train 前 128 题 → 无更新行为 probe
+```
+
+除题目 ID 不重叠外，构造脚本还要求 train/holdout 的 `group_nums` 变体家族不重叠。每道题的 prefix equation 被确定性转换为 infix expression，并由项目共用的安全 calculator 重放；结果与原始答案不一致时构造立即失败。
+
+完整来源哈希、类型计数和 processed 文件哈希见 `dataset/manifests/svamp_agent.json`。报告结果时必须称为“derived holdout”，不能称为 SVAMP 官方 test。
