@@ -34,9 +34,9 @@
 
 ## Stage 2 Track 1
 
-`stage2_track1/pure_grpo_termination_summary.json` 保存 cold-start Pure GRPO 的人工终止记录。该 run 在 5,363/6,726 组时停止；它是可审计的负结果，不是完成的四臂 Track 1 比较，也没有终态 adapter 或 official-test 数字。
+`stage2_track1/pure_grpo_termination_summary.json` 保存 cold-start Pure GRPO 的人工中断快照和恢复元数据。该 run 曾在 5,363/6,726 组时停止，随后从第 5,350 组持久 checkpoint 恢复；该文件不是完成的四臂 Track 1 结果，最终应由 terminal audit 取代。
 
-完整解释见 [`docs/STAGE2_TRACK1_TERMINATION_REPORT.md`](../docs/STAGE2_TRACK1_TERMINATION_REPORT.md)。
+完整实验设计见 [`docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md`](../docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md)；Pure 的中断与恢复证据见 [`docs/STAGE2_TRACK1_TERMINATION_REPORT.md`](../docs/STAGE2_TRACK1_TERMINATION_REPORT.md)。
 
 ## 完整性
 

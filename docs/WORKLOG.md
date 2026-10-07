@@ -232,3 +232,12 @@
 3. Pure 的答案准确率从前 200 组 5.375% 升到末 200 组 43.3125%，shaped reward 从 -2.354 升到 +0.250；但末 200 组 strict、format、工具调用、工具执行和 evidence coverage 全部为 0，且每组耗尽 3,072 action tokens。
 4. 11 个 KL 重尾组均在 backward 前被拒绝，最长连续拒绝为 1，最大被拒绝组 KL 为 157,931.45；停止原因是行为不可达和继续计算的低信息收益，而不是进程或数值崩溃。
 5. 新增 `docs/STAGE2_TRACK1_TERMINATION_REPORT.md` 和机器可读 `results/stage2_track1/pure_grpo_termination_summary.json`，明确该结果支持 cold-start 失败机制，但不能冒充完成的四臂 Track 1 或 Pure 终态 test。
+
+## 2026-10-08：恢复 Track 1 并补齐四臂评测
+
+1. 按用户要求恢复 Pure 并完成后测试；复核滚动 state 位于 candidate group 5,350、optimizer update 5,339、KL rejection 11。
+2. 将中断时 metrics/log 原样归档并核对既有 SHA-256；活动 metrics 回退到第 5,350 组再 `--resume`，防止 5,351–5,363 形成重复记录。恢复后第 5,351 组正常更新，GPU 3 训练进程健康。
+3. 解释并修正 SFT-only 未测试问题：此前只抢先完成了 SFT→GRPO test shard，完整矩阵被 Pure 终态 adapter 卡住，并非实验设计排除 SFT-only。
+4. 在 Pure 继续训练的同时，GPU 1/2 启动 Base 与 SFT-only 全量 official test，GPU 4/5/6 启动 Base、SFT-only、SFT→GRPO validation；Pure 完成后自动运行自己的两个 shard。
+5. 分片合并器新增 `--limit` 覆盖，使所有使用 `evaluate_qwen_stage2.py --limit 0` 生成的 full-test shard能在不修改 canonical config 哈希的情况下原子合并；完成后依次执行 validation audit 与 require-test audit。
+6. 新增 `docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md`，把早期 “Stack 1” 统一为规范名称 Track 1，并详细固化四臂可识别效应、数据边界、两阶段 Agent-SFT、共同 GRPO 目标、shaped/strict 分工、on-policy 与 KL 门禁、恢复规则、validation/test 协议及 fail-closed 审计条件；总报告同步改为恢复执行状态。

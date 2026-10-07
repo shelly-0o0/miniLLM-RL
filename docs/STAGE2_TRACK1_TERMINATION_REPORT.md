@@ -1,16 +1,21 @@
-# Stage 2 Track 1 Pure GRPO 终止报告
+# Stage 2 Track 1 Pure GRPO 中断与恢复记录
 
-> 状态：人工终止并保留负结果
+> 四臂研究问题、训练协议与评测设计见 [Stage 2 Track 1（Stack 1）实验设计报告](STAGE2_TRACK1_EXPERIMENT_REPORT.md)。
+
+> 状态：人工中断快照已归档；随后按用户要求恢复
 > 终止时间：2026-10-08 01:31:23（Asia/Shanghai）
+> 恢复时间：2026-10-08 01:48:06（Asia/Shanghai）
 > 模型：Qwen3-4B-Base，fresh zero-initialized LoRA，seed 42
 
 ## 1. 决策
 
-Track 1 的 `pure_grpo` 在消费 5,363/6,726 个候选组后停止。停止前已生成 42,904 条真实多轮 on-policy 轨迹，完成 5,352 次参数更新，覆盖原计划预算的 79.74%。
+Track 1 的 `pure_grpo` 在消费 5,363/6,726 个候选组后曾人工停止。停止前已生成 42,904 条真实多轮 on-policy 轨迹，完成 5,352 次参数更新，覆盖原计划预算的 79.74%。
 
 该进程没有崩溃，也没有出现非有限参数。终止原因是实验问题已经得到足够清晰的负证据：最后 200 组仍没有任何 strict success、合法工具调用或工具执行，八条轨迹持续耗尽 `8×384=3,072` 个 action token。继续消费剩余 1,363 组，预计只会重复同一种不可执行行为。
 
-训练日志、metrics、滚动 checkpoint 和 11 份安全拒绝诊断均保留在实验服务器。没有导出终态 adapter，因此该 checkpoint 不进入正式 test 或四臂结果矩阵。
+训练日志、metrics、滚动 checkpoint 和 11 份安全拒绝诊断均保留在实验服务器。2026-10-08 01:48 按用户要求从持久化的第 5,350 组 checkpoint 恢复；中断后的 5,351–5,363 临时记录已连同原始日志按 SHA-256 归档，活动 metrics 回退到 checkpoint 边界后再继续，避免重复组污染最终审计。
+
+恢复控制器同时启动缺失的 Base、SFT-only 和 SFT→GRPO validation shard，以及 Base、SFT-only full official-test shard。Pure 完成后将运行自己的 validation/test，再执行四臂原子合并和 fail-closed 审计。因此本文件中的数值只是中断快照，不再被视为终态负结果。
 
 ## 2. 终止时计数
 
@@ -60,26 +65,26 @@ Track 1 的 `pure_grpo` 在消费 5,363/6,726 个候选组后停止。停止前�
 
 但 Pure 没有完成计划预算和统一 official test，Base/SFT-only 也没有形成 Track 1 canonical merge。因此不能把上述差异写成完成的四臂效果量，不能报告 Pure 的终态 test accuracy，也不能声称得到了严格预算配平的 Pure-vs-warm 因果估计。
 
-## 6. 可发布结论
+## 6. 中断快照可以说明什么
 
-可以声称：
+在最终四臂结果产生前，可以声称：
 
 1. 在本项目的 Qwen3-4B-Base、fresh LoRA、`G=8`、shaped curriculum 条件下，cold-start GRPO 在 42,904 条轨迹内没有学会可执行 Agent 协议；
 2. dense shaping 能提高答案命中和局部协议进度，但不能保证跨越结构化工具调用边界；
 3. warm-start SFT→GRPO 已形成稳定工具行为并取得较高冻结测试成功率；
-4. KL 安全门成功隔离了 11 个重尾组，没有把异常更新写入策略。
+4. 截至中断点，KL 安全门成功隔离了 11 个重尾组，没有把异常更新写入策略。
 
 不能声称：
 
-1. “Pure GRPO 完成后准确率为 0%”；它没有完成，也没有终态 test；
+1. “Pure GRPO 完成后准确率为 0%”；中断快照没有终态 test；
 2. “GRPO 无法从零学习 Agent”；结论只适用于本配置、预算和奖励；
 3. “SFT→GRPO 的 67.48% 全部由 GRPO 带来”；缺少同一 Track 1 的 SFT-only canonical test 对照。
 
 ## 7. 证据
 
-机器可读终止摘要见 [`results/stage2_track1/pure_grpo_termination_summary.json`](../results/stage2_track1/pure_grpo_termination_summary.json)。原始大文件不进入普通 Git：
+机器可读中断/恢复摘要见 [`results/stage2_track1/pure_grpo_termination_summary.json`](../results/stage2_track1/pure_grpo_termination_summary.json)。原始大文件不进入普通 Git：
 
 - metrics SHA-256：`89e0021407cbfc6ec26cb04bf91ca90f72b1f0c4ee4f8ac9039622d32f91c6d0`；
 - log SHA-256：`c488307a6a0d2108e55563806e435af2b2131981404ec45b5f442759fd89b0c3`。
 
-滚动 checkpoint 被保留用于审计，但不会恢复训练或导出为正式模型，除非以后建立新的、预先注册的 cold-start 协议。
+上述哈希固定中断时的原始快照。恢复运行使用第 5,350 组 checkpoint；最终 adapter、测试指标与审计结果产生后，应以新的终态报告覆盖本文件的实验结论。

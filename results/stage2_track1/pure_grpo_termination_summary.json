@@ -1,8 +1,16 @@
 {
-  "status": "MANUALLY_TERMINATED",
+  "status": "INTERRUPTED_THEN_RESUMED",
   "run_name": "qwen3_4b_pure_grpo_s42",
   "terminated_at": "2026-10-08T01:31:23+08:00",
   "termination_reason": "After 42,904 on-policy trajectories, the final 200 groups still had zero strict success, zero valid tool calls, and full 3,072-token action saturation. Continuing the remaining budget was judged unlikely to answer the cold-start question more clearly.",
+  "resume": {
+    "resumed_at": "2026-10-08T01:48:06+08:00",
+    "checkpoint_candidate_group": 5350,
+    "checkpoint_optimizer_updates": 5339,
+    "checkpoint_kl_rejections": 11,
+    "archived_interruption_snapshot": true,
+    "final_result_pending": true
+  },
   "protocol": {
     "model": "Qwen/Qwen3-4B-Base",
     "training_seed": 42,
@@ -68,5 +76,5 @@
     "terminal_adapter_exported": false,
     "rolling_checkpoint_retained": true
   },
-  "conclusion_boundary": "This is evidence that the tested cold-start shaped-GRPO route failed to acquire executable agent behavior within 79.74% of the planned budget. It is not a completed four-arm Track 1 comparison and the rolling checkpoint is excluded from formal test claims."
+  "conclusion_boundary": "The interruption snapshot is evidence that the tested cold-start shaped-GRPO route had not acquired executable agent behavior within 79.74% of the planned budget. Training later resumed from the candidate-5350 checkpoint, so this snapshot is not the terminal Track 1 result and must be superseded by the completed four-arm audit."
 }

@@ -2,7 +2,7 @@
 
 一个面向 GSM8K 数学 Agentic RL 后训练的可复现实验项目。
 
-本项目以 MiniMind-64M 作为 Stage 1 基座，使用统一的 GSM8K 数据、calculator 环境和数学 verifier，研究 PPO、GRPO、CISPO、DAPO、GSPO 的 Agentic RL 后训练；Stage 2 将同一套多轮工具环境迁移到 Qwen3-4B-Base。完成的 Track 2 主线以互斥 A/B 数据比较 Agent-SFT、GRPO 和 Additional-SFT；Track 1 的 SFT → GRPO 已完成，Pure GRPO 在 42,904 条 cold-start rollout 后因始终未形成可执行工具行为而主动终止并作为负结果保留。项目重点是验证训练闭环、奖励信号、冷启动作用和跨规模迁移，不以 GSM8K SOTA 为目标。
+本项目以 MiniMind-64M 作为 Stage 1 基座，使用统一的 GSM8K 数据、calculator 环境和数学 verifier，研究 PPO、GRPO、CISPO、DAPO、GSPO 的 Agentic RL 后训练；Stage 2 将同一套多轮工具环境迁移到 Qwen3-4B-Base。完成的 Track 2 主线以互斥 A/B 数据比较 Agent-SFT、GRPO 和 Additional-SFT；Track 1 的 SFT → GRPO 已完成，Pure GRPO 曾在 42,904 条 cold-start rollout 后中断，现已从持久 checkpoint 恢复并补齐 Base/SFT-only/Pure/SFT→GRPO 四臂评测。项目重点是验证训练闭环、奖励信号、冷启动作用和跨规模迁移，不以 GSM8K SOTA 为目标。
 
 ## 项目阶段
 
@@ -58,8 +58,9 @@ miniLLM-RL/
 6. [Stage 2 完整搭建与算法记录](docs/STAGE2_QWEN3_4B_BUILD_LOG.md)
 7. [Stage 2 Track 2 最终报告](docs/STAGE2_TRACK2_FINAL_REPORT.md)
 8. [项目总报告：算法、过程、结果与结论](docs/PROJECT_SUMMARY_REPORT.md)
-9. [Stage 2 Track 1 Pure GRPO 终止报告](docs/STAGE2_TRACK1_TERMINATION_REPORT.md)
-10. [可发布实验结果索引](results/README.md)
+9. [Stage 2 Track 1（Stack 1）实验设计报告](docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md)
+10. [Stage 2 Track 1 Pure GRPO 中断与恢复记录](docs/STAGE2_TRACK1_TERMINATION_REPORT.md)
+11. [可发布实验结果索引](results/README.md)
 
 旧的 MiniMind/RL 研究报告保留在 `docs/foundation_model_interview/`，作为历史实现和实验审计材料，不代表新的 GSM8K 主线已经完成。
 
@@ -135,7 +136,7 @@ bash scripts/run_qwen_stage2.sh eval_test
 
 训练入口保留真实的 `calculate_math` 调用、工具执行结果回填、第二轮生成和严格 RLVR verifier，不是只约束答案文本格式的单轮 GRPO。完整原理、显存设计、日志字段、恢复规则和执行顺序见 [Stage 2 完整记录](docs/STAGE2_QWEN3_4B_BUILD_LOG.md)。
 
-Track 1 最终没有形成完整四臂矩阵：SFT→GRPO 已完成并在冻结 test shard 上达到 67.475% strict accuracy；Pure GRPO 在 5,363/6,726 组时停止，最后 200 组 strict/tool execution 仍均为 0。该负结果、原始日志哈希和结论边界见 [Pure GRPO 终止报告](docs/STAGE2_TRACK1_TERMINATION_REPORT.md)。
+Track 1 的 SFT→GRPO 已完成并在冻结 test shard 上达到 67.475% strict accuracy。Pure GRPO 曾在 5,363/6,726 组时中断，最后 200 组 strict/tool execution 均为 0；现已从第 5,350 组 checkpoint 恢复。Base 和 SFT-only 的缺失评测已并行启动，Pure 完成后将自动合并并审计完整四臂结果。研究问题、四臂对照、两阶段 SFT、共同 GRPO 协议、评测和审计门禁见 [Track 1 实验设计报告](docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md)；中断快照和恢复边界见 [Pure GRPO 中断与恢复记录](docs/STAGE2_TRACK1_TERMINATION_REPORT.md)。
 
 ### Track 2：互斥 A/B 数据实验
 
