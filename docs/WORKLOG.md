@@ -241,3 +241,15 @@
 4. 在 Pure 继续训练的同时，GPU 1/2 启动 Base 与 SFT-only 全量 official test，GPU 4/5/6 启动 Base、SFT-only、SFT→GRPO validation；Pure 完成后自动运行自己的两个 shard。
 5. 分片合并器新增 `--limit` 覆盖，使所有使用 `evaluate_qwen_stage2.py --limit 0` 生成的 full-test shard能在不修改 canonical config 哈希的情况下原子合并；完成后依次执行 validation audit 与 require-test audit。
 6. 新增 `docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md`，把早期 “Stack 1” 统一为规范名称 Track 1，并详细固化四臂可识别效应、数据边界、两阶段 Agent-SFT、共同 GRPO 目标、shaped/strict 分工、on-policy 与 KL 门禁、恢复规则、validation/test 协议及 fail-closed 审计条件；总报告同步改为恢复执行状态。
+
+## 2026-10-08：Track 1 终态训练、SVAMP 与完整报告
+
+1. Pure GRPO 从 group 5,350 持久 checkpoint 恢复后完成全部 6,726 groups / 53,808 trajectories；最终 6,712 updates、14 次 isolated KL safety rejection，terminal adapter 成功导出。
+2. Pure 前 200→末 200 组的 answer accuracy 从 5.375% 升至 43.500%、shaped reward 从 -2.354 升至 +0.262，但 strict、format、tool execution 和 evidence 始终为 0；全程正常更新组只有 2 组出现任何 tool-call。
+3. 统一 128 题 validation：Base/Pure/SFT-only/SFT→GRPO strict 为 0%/0%/30.469%/65.625%；Pure answer 达 42.188% 但 tool execution 为 0，确认代理答案能力与 Agent 协议能力分离。
+4. SFT-only 与 SFT→GRPO 的 1,319 题 official-test strict 为 37.604% 与 67.475%，同题差值 +29.871 pp，paired-bootstrap 95% CI `[+26.990, +32.828] pp`，exact McNemar `p=5.40e-80`。
+5. SVAMP warm-GRPO 完成 816 groups / 6,528 trajectories、0 KL rejection，终态审计 PASS；184 题 holdout strict 从 67.935% 提升至 76.087%，配对差值 +8.152 pp、95% CI `[+1.630, +14.674] pp`。
+6. 总报告新增 Track 1 训练动态、validation、cold-vs-warm 六点机制解释、SVAMP 跨分布结果与配对统计；新增 Track 1 配对统计脚本和可发布 SVAMP 结果包。
+7. Pure 1,319 题 official test 于 2026-10-09 02:09 完成：strict 0%、answer 36.922%、format/tool execution/evidence 0%、平均响应 384 token；四臂原子 merge 和 fail-closed audit 于 02:10 完成，状态 `PASS`。
+8. 四臂 official-test strict 为 Base/Pure/SFT-only/SFT→GRPO = 0%/0%/37.604%/67.475%；warm 相对 SFT-only 增量 +29.871 pp，20,000 次 paired-bootstrap 95% CI `[+26.990, +32.752] pp`，exact McNemar `p=5.40e-80`。
+9. 生成并归档 Track 1 official-test 指标、逐题配对统计、最终审计和完整实验报告，更新仓库结果校验清单。

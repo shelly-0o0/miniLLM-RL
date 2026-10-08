@@ -4,7 +4,7 @@
 > 模型：`Qwen/Qwen3-4B-Base` + NF4 QLoRA
 > 任务：GSM8K 多轮 calculator Agent
 > 训练种子 / decode seed：42 / 42
-> 当前状态：`SFT→GRPO` 已完成；`Pure GRPO` 从持久 checkpoint 恢复，四臂 validation/test 正在补齐
+> 当前状态：两条 GRPO、四臂 validation、四臂 1,319 题 official test 与终态审计均完成；Audit PASS
 
 ## 1. 实验要回答的问题
 
@@ -99,6 +99,8 @@ assistant  最终答案                            监督 token
 - `SFT→GRPO` 的唯一初始化起点。
 
 这样可避免 warm 分支与 SFT-only 使用不同的监督 checkpoint，从而保证 `SFT only → SFT→GRPO` 只增加 GRPO 处理。
+
+修复前三个协议 token 的 teacher-forced Top-1/Top-20 均为 0。正式修复完成 415 optimizer steps、6,637 条样本，耗时 3,199.65 秒，`train_loss=0.468097`；修复后三个结构 token 的 Top-1 达 99.6396%，其中 `<tool_call>`/`</tool_call>` 均为 100%，`<|im_end|>` 为 98.4375%，普通位置误触发仅 0.0847%。因此 warm-start 的“协议可达性”有独立的 token-level 验收证据。
 
 ## 5. 两条 GRPO 分支
 
@@ -239,20 +241,46 @@ SFT→GRPO 的 1,319 题 official-test shard 已先完成，strict task accuracy
 
 本实验只有一个 training seed，因此题目级 bootstrap 不能替代跨训练 seed 方差。两阶段 SFT 重复遍历同一可靠轨迹，而两条 GRPO 使用 8 倍 on-policy rollout，计算预算并不等量。official test 已用于终态报告，后续不得据此调参。结论只适用于当前 Qwen3-4B-Base、LoRA 容量、GSM8K calculator 环境、shaped reward、`G=8` 和给定预算。
 
-## 11. 当前执行状态
+## 11. 训练与 validation 结果
 
-截至本报告更新：
+两条 GRPO 都完成预定的 6,726 groups / 53,808 trajectories。Pure 完成 6,712 次参数更新、14 次 KL safety rejection；warm 完成 6,726 次更新、0 次拒绝。
 
-- `SFT only` adapter 已完成；
-- `SFT→GRPO` 已完成 6,726/6,726 groups 和 53,808 trajectories，无 KL 拒绝；
-- `SFT→GRPO` full official-test shard 已完成；
-- `Pure GRPO` 的中断快照已归档，并从 group 5,350 持久 checkpoint 恢复；
-- Base、SFT-only、SFT→GRPO validation 以及 Base、SFT-only official-test shard 已进入补测流程；
-- Pure 完成后才运行自己的 validation/test，并执行四臂 merge 与终态 audit。
+| 分支与窗口 | Shaped reward | Answer | Strict | Format | Tool execution | Evidence | Tokens/group |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Pure 前 200 组 | -2.354 | 5.375% | 0% | 0% | 0% | 0% | 3,070.14 |
+| Pure 后 200 组 | +0.262 | 43.500% | 0% | 0% | 0% | 0% | 3,072.00 |
+| Warm 前 200 组 | +3.772 | 55.625% | 51.000% | 98.438% | 99.323% | 52.188% | 655.06 |
+| Warm 后 200 组 | +4.940 | 78.125% | 77.000% | 99.188% | 99.938% | 77.875% | 665.90 |
 
-因此当前可以报告设计、单臂事实和中断机制，但完整四臂效果量仍应等待 terminal adapter、全部 shard 与审计结果。Pure 中断和恢复的证据边界见 [Stage 2 Track 1 Pure GRPO 中断与恢复记录](STAGE2_TRACK1_TERMINATION_REPORT.md)。
+Pure 的正常更新组共产生 20,617,925 个 action token，warm 为 4,680,622 个，约相差 4.41 倍；累计单卡时间约为 67.9 小时与 32.27 小时。实验匹配的是候选组/轨迹预算，不是生成 token 或 FLOPs。
 
-## 12. 可复现入口
+统一的 128 题 validation 为：
+
+| 模型 | Strict | Answer | Format | Tool execution | Evidence | Avg tokens |
+|---|---:|---:|---:|---:|---:|---:|
+| Base | 0% | 3.906% | 0% | 0% | 0% | 384.00 |
+| Pure GRPO | 0% | 42.188% | 0% | 0% | 0% | 384.00 |
+| SFT only | 30.469% | 46.094% | 98.438% | 99.023% | 33.594% | 67.09 |
+| SFT→GRPO | **65.625%** | **66.406%** | **100%** | **100%** | **65.625%** | 89.09 |
+
+Pure 显著提高了答案命中和 shaped reward，却没有形成任何稳定的可解析工具动作；warm 分支从第一批轨迹起就在可执行行为分布内，GRPO 因而能进一步优化算式选择、evidence 和最终答案。完整机制解释见 [项目完整实验报告](PROJECT_SUMMARY_REPORT.md#88-为什么-cold-start-grpo-没学会协议而-warm-start-grpo-能继续增益)。
+
+## 12. Official test 与终态审计
+
+四臂 1,319 题 official test、原子 merge 与 fail-closed audit 均已完成，审计 `PASS`：
+
+| 模型 | Strict | Answer | Format | Tool execution | Evidence | Avg tokens |
+|---|---:|---:|---:|---:|---:|---:|
+| Base | 0% | 4.246% | 0% | 0% | 0% | 384.00 |
+| Pure GRPO | 0% | 36.922% | 0% | 0% | 0% | 384.00 |
+| SFT-only | 37.604% | 46.475% | 97.953% | 99.507% | 38.893% | 70.46 |
+| SFT→GRPO | **67.475%** | **69.598%** | **98.863%** | **99.621%** | **67.930%** | 88.56 |
+
+SFT→GRPO 相对 SFT-only 的 strict 差值为 `+29.871 pp`，paired-bootstrap 95% CI `[+26.990, +32.752] pp`，exact McNemar `p=5.40e-80`；仅 warm-RL 成功 444 题，仅 SFT-only 成功 50 题，共同成功 446 题。Pure 相对 Base 的 strict 差值为 0，但 answer accuracy 高 32.676 pp，说明它确实学到了直接求答案的代理能力，却没有任何可执行 Agent 成功。Pure 的 formal test 与 validation、训练窗口结论一致，因此这里的 0% 是冻结测试结果，不是由训练指标代替。
+
+Pure 中断和恢复的证据边界见 [Stage 2 Track 1 Pure GRPO 中断与恢复记录](STAGE2_TRACK1_TERMINATION_REPORT.md)。
+
+## 13. 可复现入口
 
 | 文件 | 作用 |
 |---|---|
@@ -265,4 +293,3 @@ SFT→GRPO 的 1,319 题 official-test shard 已先完成，strict task accuracy
 | `scripts/run_qwen_stage2.sh` | 原始训练与评测入口 |
 | `scripts/resume_and_finalize_qwen_track1.sh` | 恢复、补测、合并与审计控制器 |
 | `scripts/audit_qwen_stage2_results.py` | fail-closed 结果审计 |
-

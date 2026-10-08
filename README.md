@@ -1,15 +1,16 @@
 # miniLLM-RL
 
-一个面向 GSM8K 数学 Agentic RL 后训练的可复现实验项目。
+一个面向 GSM8K 与 SVAMP 数学 Agentic RL 后训练的可复现实验项目。
 
-本项目以 MiniMind-64M 作为 Stage 1 基座，使用统一的 GSM8K 数据、calculator 环境和数学 verifier，研究 PPO、GRPO、CISPO、DAPO、GSPO 的 Agentic RL 后训练；Stage 2 将同一套多轮工具环境迁移到 Qwen3-4B-Base。完成的 Track 2 主线以互斥 A/B 数据比较 Agent-SFT、GRPO 和 Additional-SFT；Track 1 的 SFT → GRPO 已完成，Pure GRPO 曾在 42,904 条 cold-start rollout 后中断，现已从持久 checkpoint 恢复并补齐 Base/SFT-only/Pure/SFT→GRPO 四臂评测。项目重点是验证训练闭环、奖励信号、冷启动作用和跨规模迁移，不以 GSM8K SOTA 为目标。
+本项目以 MiniMind-64M 作为 Stage 1 基座，使用统一的 calculator 环境和数学 verifier，正式比较 GRPO、CISPO、DAPO、GSPO；Stage 2 将同一套多轮工具环境迁移到 Qwen3-4B-Base。Track 2 以互斥 A/B 数据比较 Agent-SFT、GRPO 和 Additional-SFT；Track 1 用 Base、Pure GRPO、SFT-only、SFT→GRPO 隔离行为 cold start 的作用；SVAMP 实验进一步检验 warm-GRPO 的跨数据集增量。项目重点是验证训练闭环、奖励信号、冷启动作用和跨规模迁移，不以 benchmark SOTA 为目标。PPO 入口保留在代码中，但不属于本轮正式算法矩阵。
 
 ## 项目阶段
 
 ```text
-Stage 1: MiniMind-64M → Agent SFT → PPO/GRPO/CISPO/DAPO/GSPO
+Stage 1: MiniMind-64M → Agent SFT → GRPO/CISPO/DAPO/GSPO
 Stage 2 Track 1: Qwen3-4B-Base → Base / Pure GRPO / SFT only / SFT → GRPO
 Stage 2 Track 2: Agent-SFT(A) → GRPO(A) / GRPO(B) / Additional-SFT(B)
+SVAMP transfer: Additional-SFT(B) → SVAMP warm GRPO
 ```
 
 同一阶段的比较使用相同 GSM8K manifest、prompt、calculator、answer parser、rollout 参数和固定评测集。Stage 2 的 Pure GRPO 从 Base 的新建零初始化 LoRA 开始，SFT → GRPO 从 SFT adapter 开始，以隔离 warm start 的作用。
@@ -57,7 +58,7 @@ miniLLM-RL/
 5. [Stage 1 GSM8K 最终报告](docs/STAGE1_GSM8K_FINAL_REPORT.md)
 6. [Stage 2 完整搭建与算法记录](docs/STAGE2_QWEN3_4B_BUILD_LOG.md)
 7. [Stage 2 Track 2 最终报告](docs/STAGE2_TRACK2_FINAL_REPORT.md)
-8. [项目总报告：算法、过程、结果与结论](docs/PROJECT_SUMMARY_REPORT.md)
+8. [项目完整实验报告：设计、过程、结果与机制分析](docs/PROJECT_SUMMARY_REPORT.md)
 9. [Stage 2 Track 1（Stack 1）实验设计报告](docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md)
 10. [Stage 2 Track 1 Pure GRPO 中断与恢复记录](docs/STAGE2_TRACK1_TERMINATION_REPORT.md)
 11. [可发布实验结果索引](results/README.md)
@@ -136,7 +137,7 @@ bash scripts/run_qwen_stage2.sh eval_test
 
 训练入口保留真实的 `calculate_math` 调用、工具执行结果回填、第二轮生成和严格 RLVR verifier，不是只约束答案文本格式的单轮 GRPO。完整原理、显存设计、日志字段、恢复规则和执行顺序见 [Stage 2 完整记录](docs/STAGE2_QWEN3_4B_BUILD_LOG.md)。
 
-Track 1 的 SFT→GRPO 已完成并在冻结 test shard 上达到 67.475% strict accuracy。Pure GRPO 曾在 5,363/6,726 组时中断，最后 200 组 strict/tool execution 均为 0；现已从第 5,350 组 checkpoint 恢复。Base 和 SFT-only 的缺失评测已并行启动，Pure 完成后将自动合并并审计完整四臂结果。研究问题、四臂对照、两阶段 SFT、共同 GRPO 协议、评测和审计门禁见 [Track 1 实验设计报告](docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md)；中断快照和恢复边界见 [Pure GRPO 中断与恢复记录](docs/STAGE2_TRACK1_TERMINATION_REPORT.md)。
+Track 1 四臂训练、validation、1,319 题 official test、原子合并与 fail-closed 审计均已完成，审计 `PASS`。Strict accuracy 为 Base 0%、Pure GRPO 0%、SFT-only 37.604%、SFT→GRPO 67.475%；Pure 的 answer accuracy 从 Base 的 4.246% 提高到 36.922%，但工具执行仍为 0。SFT→GRPO 相对 SFT-only 增加 29.871 pp，说明 SFT 建立协议可达性后，warm GRPO 仍有显著独立增量。完整设计和结果见 [Track 1 实验报告](docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md)，机器可读结果见 [`results/stage2_track1/`](results/stage2_track1/)，中断与恢复证据见 [Pure GRPO 记录](docs/STAGE2_TRACK1_TERMINATION_REPORT.md)。
 
 ### Track 2：互斥 A/B 数据实验
 
@@ -173,6 +174,8 @@ bash scripts/run_svamp_warm_grpo.sh audit_results
 ```
 
 该协议是从作者 CV folds 派生的项目内 train/holdout，不应写成 SVAMP 官方 train/test。源 revision、行数与 SHA-256 固定在 `dataset/manifests/svamp_agent.json`。
+
+该实验已完成 816 groups / 6,528 trajectories 并通过终态审计。184 题 holdout strict 从 Additional-SFT(B) zero-shot 的 67.935% 提升到 warm-GRPO 的 76.087%，同题增量 8.152 pp，paired-bootstrap 95% CI 为 `[+1.630, +14.674] pp`。结果见 [`results/stage2_svamp/`](results/stage2_svamp/)。
 
 ## 我的主要工作
 
