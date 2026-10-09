@@ -1,11 +1,11 @@
-# Stage 2 SVAMP warm-GRPO 结果
+# Stage 2 SVAMP SFT-init GRPO 结果
 
-起点为 GSM8K Track 2 的 `Additional-SFT(B)` adapter；在 816 条 SVAMP train prompt 上运行 816 groups × 8 trajectories 的 warm-start GRPO，再在隔离的 184 题 holdout 上与未更新 adapter 作同题比较。
+起点为 GSM8K Track 2 的 `Additional-SFT(B)` adapter；以该 SFT adapter 初始化，在 816 条 SVAMP train prompt 上运行 816 groups × 8 trajectories 的 GRPO，再在隔离的 184 题 holdout 上与未更新 adapter 作同题比较。这里的 SFT 属于 RL 系统的冷启动训练，GRPO 按初始化来源记为 SFT-init GRPO。
 
 | 模型 | Strict | Answer | Format valid | Tool execution | Evidence | Avg tokens |
 |---|---:|---:|---:|---:|---:|---:|
 | Additional-SFT(B) zero-shot | 67.935% | 71.739% | 98.913% | 99.457% | 70.109% | 39.91 |
-| SVAMP warm GRPO | **76.087%** | **79.891%** | **99.457%** | **99.457%** | **76.630%** | 38.69 |
+| SVAMP SFT-init GRPO | **76.087%** | **79.891%** | **99.457%** | **99.457%** | **76.630%** | 38.69 |
 | 绝对变化 | **+8.152 pp** | **+8.152 pp** | +0.543 pp | 0 pp | **+6.522 pp** | -1.22 |
 
 同题配对统计：

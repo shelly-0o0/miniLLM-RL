@@ -43,12 +43,12 @@ Track 2 的 A/B/test 必须题目级互斥。GRPO(A) 与 GRPO(B) 使用相同 gr
 ```text
 Base → SFT：监督微调收益
 SFT → RL：强化学习增量收益
-Base → Pure GRPO：无监督冷启动时 RL 的直接收益
-Pure GRPO ↔ SFT → GRPO：warm start 对可优化行为和样本效率的影响
+Base → Pure GRPO：Base-init、无 Agent-SFT 初始化时 RL 的直接收益
+Pure GRPO ↔ SFT → GRPO：Agent-SFT 冷启动训练对可优化行为和样本效率的影响
 ```
 
 如果零方差组比例很高，应先报告“模型没有产生有效相对优势”，不能简单得出“RL 方法无效”。
 
 Track 2 还必须报告 A/B Pre-GRPO probe 的 pass@1、pass@8、effective-group rate 和 zero-variance rate；probe 不更新参数，也不能使用官方 test。
 
-SVAMP warm-start 实验必须从 Track 2 `Additional-SFT(B)` 的同一个 adapter 分叉，先冻结并评测零样本 holdout，再仅在 SVAMP fold 0–3 上执行 strict `G=8` GRPO。fold 4 holdout 不得参与训练、probe、checkpoint 选择或超参数调整；零样本与 GRPO 后评测必须使用相同 decode seed 和 canonical 配置。最终结果需同时通过数据家族隔离、完整 816 组训练、adapter finite、184 题双臂覆盖和 manifest 一致性审计。
+SVAMP SFT-init GRPO 实验必须从 Track 2 `Additional-SFT(B)` 的同一个 adapter 分叉，先冻结并评测未更新 adapter 的 holdout，再仅在 SVAMP fold 0–3 上执行 strict `G=8` GRPO。fold 4 holdout 不得参与训练、probe、checkpoint 选择或超参数调整；GRPO 前后评测必须使用相同 decode seed 和 canonical 配置。最终结果需同时通过数据家族隔离、完整 816 组训练、adapter finite、184 题双臂覆盖和 manifest 一致性审计。

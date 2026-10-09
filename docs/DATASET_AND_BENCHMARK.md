@@ -2,7 +2,7 @@
 
 ## 数据来源
 
-主数据集使用 Hugging Face 的 `openai/gsm8k`，配置为 `main`。原始数据包含官方 `train` 和 `test` split；项目不得把官方 test 用于训练、冷启动或调参。
+主数据集使用 Hugging Face 的 `openai/gsm8k`，配置为 `main`。原始数据包含官方 `train` 和 `test` split；项目不得把官方 test 用于训练、Agent-SFT 冷启动训练或调参。
 
 下载入口：<https://huggingface.co/datasets/openai/gsm8k>
 

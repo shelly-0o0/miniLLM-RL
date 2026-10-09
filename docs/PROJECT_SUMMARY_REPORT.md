@@ -2,29 +2,31 @@
 
 > 报告日期：2026-10-09
 > 项目仓库：`Mini-RL` / `gsm8k-agentic-rl`
-> 正式完成范围：Stage 1 MiniMind-64M；Stage 2 Track 1/2 Qwen3-4B；SVAMP warm-GRPO
+> 正式完成范围：Stage 1 MiniMind-64M；Stage 2 Track 1/2 Qwen3-4B；SVAMP SFT-init GRPO
 > 最终回归：72/72 tests PASS
 > Stage 2 Track 1、Track 2 与 SVAMP 结果审计：PASS
 
 ## 1. 执行摘要
 
-本项目完成了从 GSM8K 数据准备、Agent 工具轨迹构造、行为冷启动、在线强化学习、冻结验证、官方测试到结果审计的一整套 Agentic RL 实验闭环。模型并非只输出固定格式的数学答案，而是在 rollout 中生成 `calculate_math` 工具调用，由环境真实执行表达式、回填 observation，再由模型继续生成最终回答；严格 verifier 同时检查答案、调用、执行、必需工具覆盖和证据一致性。
+本项目完成了从 GSM8K 数据准备、Agent 工具轨迹构造、Agent-SFT（RL 系统的冷启动训练）、在线强化学习、冻结验证、官方测试到结果审计的一整套 Agentic RL 实验闭环。模型并非只输出固定格式的数学答案，而是在 rollout 中生成 `calculate_math` 工具调用，由环境真实执行表达式、回填 observation，再由模型继续生成最终回答；严格 verifier 同时检查答案、调用、执行、必需工具覆盖和证据一致性。
 
 项目形成了四组互补证据：
 
 1. **Stage 1 MiniMind-64M 算法比较**：从同一个 Agent-SFT 起点独立训练 GRPO、CISPO、DAPO、GSPO，各 3 个训练种子。DAPO 在 validation 排名第一，并在未参与选择的 1,319 道 official test 上将严格成功率从 2.1986% 提升到 3.3190%，绝对提升 1.1204 个百分点。
 2. **Stage 2 Track 2 Qwen3-4B 路线比较**：完成 Base、Agent-SFT(A)、GRPO(A)、GRPO(B)、Additional-SFT(B) 五臂实验。GRPO 相对 Agent-SFT 取得小幅但可测的增益；使用可靠 B 轨迹继续 SFT 达到 42.5322% 严格成功率，远高于 GRPO(B) 的 2.6535%。这说明当前模型、初始化和稀疏 strict reward 下，高质量 Agent oracle 的监督密度远高于纯在线 RL 信号。
-3. **Stage 2 Track 1 Qwen3-4B warm-start 消融**：以 Base、Pure GRPO、SFT only、SFT→GRPO 四臂拆分监督行为先验、cold-start RL 和 warm-start RL 的增量。两条 GRPO 使用相同数据、shaped reward 和 53,808 轨迹预算，唯一核心差异是是否从 Agent-SFT adapter 初始化。Pure 完成全部预算但 validation strict/tool execution 仍为 0；SFT-only 与 SFT→GRPO 的 official-test strict 分别为 37.604% 和 67.475%。
-4. **SVAMP 跨数据集 warm-GRPO**：从 GSM8K Additional-SFT(B) adapter 出发，在 816 条 SVAMP train prompt 上完成 6,528 条轨迹，184 题 holdout strict 从 67.935% 提升到 76.087%，终态审计 PASS。该结果表明在协议已经可达时，GRPO 可以把增量用于新的题目分布。
+3. **Stage 2 Track 1 Qwen3-4B 初始化消融**：以 Base、Pure GRPO、SFT only、SFT→GRPO 四臂拆分 Agent-SFT 冷启动训练、Base-init GRPO 和 Agent-SFT-init GRPO 的贡献。两条 GRPO 使用相同数据、shaped reward 和 53,808 轨迹预算，唯一核心差异是是否从 Agent-SFT adapter 初始化。Pure 完成全部预算但 validation strict/tool execution 仍为 0；SFT-only 与 SFT→GRPO 的 official-test strict 分别为 37.604% 和 67.475%。
+4. **SVAMP 跨数据集 SFT-init GRPO**：从 GSM8K Additional-SFT(B) adapter 出发，在 816 条 SVAMP train prompt 上完成 6,528 条轨迹，184 题 holdout strict 从 67.935% 提升到 76.087%，终态审计 PASS。该结果表明在协议已经可达时，GRPO 可以把增量用于新的题目分布。
 
 核心结果概览：
 
 | 阶段 | 模型规模 | 正式问题 | 最佳正式结果 | 主要结论 |
 |---|---:|---|---:|---|
 | Stage 1 | MiniMind 63.91M | 四种 group-relative RL 算法谁更优 | DAPO test strict 3.3190% | DAPO 相对 Agent-SFT +1.1204 pp |
-| Stage 2 Track 2 | Qwen3-4B + QLoRA | Agent warm start、已见/未见 RL 数据与追加 SFT 的差异 | Additional-SFT(B) strict 42.5322% | GRPO 有小幅增益，但可靠 oracle 下追加 SFT 明显更强 |
-| Stage 2 Track 1 | Qwen3-4B + QLoRA | SFT warm start 是否改变 GRPO 的协议可达性 | SFT→GRPO test strict 67.4754% | Pure 答案改善但协议为 0；warm RL 相对 SFT-only +29.871 pp |
-| SVAMP transfer | Qwen3-4B + QLoRA | 已有协议后 RL 能否迁移到新分布 | warm-GRPO holdout strict 76.0870% | 相对 zero-shot warm adapter +8.152 pp |
+| Stage 2 Track 2 | Qwen3-4B + QLoRA | Agent-SFT 冷启动训练、已见/未见 RL 数据与追加 SFT 的差异 | Additional-SFT(B) strict 42.5322% | GRPO 有小幅增益，但可靠 oracle 下追加 SFT 明显更强 |
+| Stage 2 Track 1 | Qwen3-4B + QLoRA | Agent-SFT 初始化是否改变 GRPO 的协议可达性 | SFT→GRPO test strict 67.4754% | Pure 答案改善但协议为 0；SFT-init GRPO 相对 SFT-only +29.871 pp |
+| SVAMP transfer | Qwen3-4B + QLoRA | 已有协议后 RL 能否迁移到新分布 | SFT-init GRPO holdout strict 76.0870% | 相对未更新 SFT adapter +8.152 pp |
+
+**术语口径：** Agent-SFT 是 RL 系统的冷启动训练。Pure GRPO 记为 Base-init GRPO（没有 Agent-SFT 初始化），SFT→GRPO 记为 Agent-SFT-init GRPO。GRPO 分支统一按初始化来源命名，避免把 RL 系统的“冷启动训练”与 GRPO 的起始 checkpoint 混为一谈。
 
 ![项目技术链路与两阶段实验](assets/project_summary/project_flow.png)
 
@@ -37,9 +39,9 @@
 本项目并不把“输出一个带 XML 标签的答案”视为 Agentic RL。正式实验试图回答以下问题：
 
 - 小模型能否通过 Agent-SFT 获得工具调用行为先验；
-- 在同一行为冷启动点上，不同 group-relative 策略目标是否产生可复现差异；
+- 在同一 Agent-SFT 冷启动训练起点上，不同 group-relative 策略目标是否产生可复现差异；
 - 强化学习得到的收益能否在未参与选模的 official test 上保持；
-- 在相同 shaped-GRPO 协议下，cold start 和 Agent-SFT warm start 是否进入不同的可优化行为区域；
+- 在相同 shaped-GRPO 协议下，Base-init GRPO 和 Agent-SFT-init GRPO 是否进入不同的可优化行为区域；
 - 对更大的 Qwen3-4B，当同一批题既可用于在线 RL 又有可靠 oracle 时，GRPO 和继续 SFT 的效果有何差异；
 - 已经掌握工具协议的策略，能否在新的 SVAMP 分布上继续通过 GRPO 获得 holdout 增量；
 - 稀疏奖励、控制 token、padding、精度、量化、日志与 KL 稳定性等工程因素如何影响可优化性。
@@ -116,17 +118,17 @@ assistant-only mask 抽查 128 条的结果为：
 
 A∩B、A∩test、B∩test 均为空。GRPO(B) 和 Additional-SFT(B) 使用相同 3,686 个题目 ID、相同 Agent-SFT(A) 起点，但监督信号不同：前者只看到自己生成轨迹的 verifier reward，后者直接看到可靠 action oracle。因此该比较衡量当前信号条件下的训练路线差异，而不是普遍证明 SFT 总是优于 RL。
 
-### 3.3 SVAMP 跨数据集 warm-GRPO
+### 3.3 SVAMP 跨数据集 SFT-init GRPO
 
 SVAMP 共 1,000 题，固定拆成 816 条 train RL prompt 和 184 条 holdout；另从训练侧固定抽取 128 条 probe，只用于开跑前检查行为与奖励方差。holdout 不参与 GRPO 更新。
 
 | 集合 | 行数 | 用途 | SHA-256 |
 |---|---:|---|---|
-| SVAMP train RL | 816 | 从 GSM8K Additional-SFT(B) adapter warm-start 的 GRPO | `be3b3faeb122f27b285acf1ed05e59d0eb0eb601f0452c17136ab90e0252dc7c` |
+| SVAMP train RL | 816 | 从 GSM8K Additional-SFT(B) adapter 初始化的 GRPO | `be3b3faeb122f27b285acf1ed05e59d0eb0eb601f0452c17136ab90e0252dc7c` |
 | SVAMP holdout | 184 | 零样本起点与 GRPO 终态的同题比较 | `d83fdc54a99fa6a1e7779372ee9d22cd8fec28b1b3689272d146e0204d3bbb47` |
 | SVAMP probe | 128 | 训练前 pass@8、有效组率和协议验收 | `2a90fcee9e8f11a7e3e731b22ecb83a0ab687855cdcd5fb770d0d4a9e3f401a9` |
 
-该实验先直接评测 GSM8K Track 2 的 Additional-SFT(B) adapter，再在 SVAMP train 上以 strict deterministic reward 执行 816 groups × 8 trajectories 的 warm GRPO，最后在相同 184 条 holdout 上比较更新前后。它检验的是已经拥有可靠工具协议的模型能否把 RL 增量迁移到新的题目分布。
+该实验先直接评测 GSM8K Track 2 的 Additional-SFT(B) adapter，再以该 adapter 初始化策略，在 SVAMP train 上用 strict deterministic reward 执行 816 groups × 8 trajectories 的 GRPO，最后在相同 184 条 holdout 上比较更新前后。它检验的是已经拥有可靠工具协议的模型能否把 RL 增量迁移到新的题目分布。
 
 ## 4. 算法原理
 
@@ -330,7 +332,7 @@ DAPO 的 optimizer updates 只有其他方法约 18.6%，总 wall time 却与 GR
 | 实验臂 | 初始化 | 后续数据与目标 | 回答的问题 |
 |---|---|---|---|
 | Base | Qwen3-4B-Base | 无 | 未后训练模型能否完成 Agent 协议 |
-| Agent-SFT(A) | Base | A reliable oracle | 行为冷启动的总体作用 |
+| Agent-SFT(A) | Base | A reliable oracle | RL 系统冷启动训练的总体作用 |
 | GRPO(A) | Agent-SFT(A) | A compare，strict RLVR | 已见 SFT 题上的在线 RL 增量 |
 | GRPO(B) | Agent-SFT(A) | B compare，strict RLVR | 新题上的在线 RL 增量 |
 | Additional-SFT(B) | Agent-SFT(A) | B reliable oracle | 同一 B 题上继续监督学习的增量 |
@@ -422,7 +424,7 @@ Additional-SFT(B) 用约 `0.461 h` 完成一轮，而 GRPO(B) 用约 `15.885 h`�
 
 ### 7.8 结果解释
 
-1. **Agent-SFT 是必要的行为冷启动。** 它把 Base 的 strict success 从 0 提升到 0.910%，并建立部分真实工具执行能力。
+1. **Agent-SFT 是必要的 RL 系统冷启动训练。** 它把 Base 的 strict success 从 0 提升到 0.910%，并建立部分真实工具执行能力。
 2. **strict-GRPO 并非完全无效。** A/B 两条 GRPO 分支相对 Agent-SFT 分别提高 1.668/1.744 pp，题目级配对区间均高于 0。
 3. **没有证据表明 B 上 RL 优于 A 上 RL。** GRPO(B)−GRPO(A) 只有 +0.076 pp，区间跨 0，McNemar p=1.0。
 4. **当前主要矛盾是信号密度。** GRPO 正式训练末 200 组的零方差比例约为 A 82%、B 84.5%，大量 prompt group 无法提供组内排序梯度。
@@ -432,7 +434,7 @@ Additional-SFT(B) 用约 `0.461 h` 完成一轮，而 GRPO(B) 用约 `15.885 h`�
 
 ## 8. Stage 2 Track 1（Stack 1）实验设计与状态
 
-早期记录中的 “Stack 1” 与当前规范名称 “Track 1” 指同一实验。该实验不是 Track 2 的重复：Track 2 比较互斥 A/B 数据与监督信号，Track 1 则固定 GRPO 数据、奖励、目标和预算，直接研究 **Agent-SFT warm start 是否改变结构化 Agent 行为的可达性**。
+早期记录中的 “Stack 1” 与当前规范名称 “Track 1” 指同一实验。该实验不是 Track 2 的重复：Track 2 比较互斥 A/B 数据与监督信号，Track 1 则固定 GRPO 数据、奖励、目标和预算，直接研究 **Agent-SFT（RL 系统的冷启动训练）是否改变结构化 Agent 行为的可达性**。
 
 ### 8.1 四臂对照与可识别效应
 
@@ -448,11 +450,11 @@ Qwen3-4B-Base ── Agent-SFT ───┬─ SFT only
 | 对照 | 回答的问题 |
 |---|---|
 | Base → SFT only | 监督行为先验是否建立合法工具调用、observation 利用与停止能力 |
-| Base → Pure GRPO | shaped curriculum 能否从 Base 冷启动学会 Agent 协议 |
+| Base → Pure GRPO | shaped curriculum 能否让 Base-init GRPO 学会 Agent 协议 |
 | SFT only → SFT→GRPO | 在同一 SFT 起点上，GRPO 是否提供独立增量 |
 | Pure GRPO ↔ SFT→GRPO | 相同 GRPO 协议下，初始化是否改变优化可达性 |
 
-SFT-only 并不是可省略的附属结果。没有它，就无法把 SFT→GRPO 的总效果拆成 SFT 贡献和 RL 增量，也会错误地把 warm 分支的高分全部归因给 GRPO。Base 提供共同原点，Pure 提供 cold-start 对照，四臂缺一都不能形成完整机制结论。
+SFT-only 并不是可省略的附属结果。没有它，就无法把 SFT→GRPO 的总效果拆成 Agent-SFT 冷启动训练的贡献和后续 RL 增量，也会错误地把 SFT→GRPO 分支的高分全部归因给 GRPO。Base 提供共同原点，Pure 提供无 Agent-SFT 初始化的 GRPO 对照，四臂缺一都不能形成完整机制结论。
 
 ### 8.2 数据、模型与两阶段 SFT
 
@@ -463,13 +465,13 @@ SFT-only 并不是可省略的附属结果。没有它，就无法把 SFT→GRPO
 1. 对 6,637 条轨迹完整训练 1 epoch，只监督 assistant action token；system、user 和 tool observation 只作为条件；
 2. 从该 adapter 继续训练 1 epoch，显式把 `lm_head` 加入 LoRA target，并对 `<tool_call>`、`</tool_call>`、`<|im_end|>` 使用结构权重 8，修复控制 token 可达性。
 
-第二阶段产物同时是 SFT-only 的评测对象和 SFT→GRPO 的初始化，保证 warm 分支只比 SFT-only 多出 GRPO 处理。
+第二阶段产物同时是 SFT-only 的评测对象和 SFT→GRPO 的初始化，保证 SFT→GRPO 分支只比 SFT-only 多出 GRPO 处理。
 
-修复前，三个协议 token 在 teacher-forced 审计中的 Top-1/Top-20 均为 0。正式修复实际完成 415 optimizer steps、6,637 条样本，耗时 3,199.65 秒，`train_loss=0.468097`。修复后的 128 条审计中，三个结构 token 的 Top-1 达 99.6396%，其中 `<tool_call>`/`</tool_call>` 均为 100%，`<|im_end|>` 为 98.4375%；普通位置结构 token 误触发仅 0.0847%。这提供了“warm start 改变控制 token 可达性”的直接证据，而不只是最终准确率相关性。
+修复前，三个协议 token 在 teacher-forced 审计中的 Top-1/Top-20 均为 0。正式修复实际完成 415 optimizer steps、6,637 条样本，耗时 3,199.65 秒，`train_loss=0.468097`。修复后的 128 条审计中，三个结构 token 的 Top-1 达 99.6396%，其中 `<tool_call>`/`</tool_call>` 均为 100%，`<|im_end|>` 为 98.4375%；普通位置结构 token 误触发仅 0.0847%。这提供了“Agent-SFT 冷启动训练改变控制 token 可达性”的直接证据，而不只是最终准确率相关性。
 
 ### 8.3 共同 GRPO 协议
 
-Pure 与 warm 分支的唯一核心差异是初始化：Pure 使用 Base 上 fresh LoRA，warm 使用修复后的 SFT adapter；两者分别冻结对应起点作为 reference。其余配置一致：
+Pure 与 SFT→GRPO 分支的唯一核心差异是初始化：Pure 使用 Base 上 fresh LoRA，SFT→GRPO 使用修复后的 Agent-SFT adapter；两者分别冻结对应起点作为 reference。其余配置一致：
 
 - 每题采样 `G=8` 条真实多轮 on-policy 轨迹，最多 3 轮、每轮最多 384 action token；
 - temperature 1、top-k 0、top-p 1，保证 behavior log-prob ledger 与 full-softmax 策略一致；
@@ -495,18 +497,18 @@ SFT→GRPO 的 full official-test shard 已先完成，strict accuracy 为 67.47
 
 ### 8.6 两条 GRPO 的训练动态
 
-Pure 与 warm 分支最终都消费了 6,726 groups / 53,808 trajectories。Pure 完成 6,712 次更新，14 个重尾组在 backward 前被安全拒绝；warm 完成 6,726 次更新，0 次拒绝。两者没有非有限 adapter tensor。
+Pure 与 SFT→GRPO 分支最终都消费了 6,726 groups / 53,808 trajectories。Pure 完成 6,712 次更新，14 个重尾组在 backward 前被安全拒绝；SFT→GRPO 完成 6,726 次更新，0 次拒绝。两者没有非有限 adapter tensor。
 
 | 分支与窗口 | Shaped reward | Answer acc | Strict acc | Format valid | Tool execution | Evidence | Action tokens/group | KL k3 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Pure 前 200 组 | -2.354 | 5.375% | 0% | 0% | 0% | 0% | 3,070.14 | 0.03788 |
 | Pure 后 200 组 | +0.262 | 43.500% | 0% | 0% | 0% | 0% | 3,072.00 | 0.05547 |
-| Warm 前 200 组 | +3.772 | 55.625% | 51.000% | 98.438% | 99.323% | 52.188% | 655.06 | 0.00199 |
-| Warm 后 200 组 | +4.940 | 78.125% | 77.000% | 99.188% | 99.938% | 77.875% | 665.90 | 0.01556 |
+| SFT→GRPO 前 200 组 | +3.772 | 55.625% | 51.000% | 98.438% | 99.323% | 52.188% | 655.06 | 0.00199 |
+| SFT→GRPO 后 200 组 | +4.940 | 78.125% | 77.000% | 99.188% | 99.938% | 77.875% | 665.90 | 0.01556 |
 
-Pure 的全程 6,712 个正常更新组中，只有 2 个组产生过任何 tool-call，只有 1 个组出现非零 format-valid，严格成功组为 0。相比之下，warm 的 6,726 个组全部产生 tool-call，6,131 个组至少含一条严格成功轨迹。Pure 的 answer accuracy 和 protocol-progress 明显上升，说明优化器并未完全失效；失败发生在“局部代理指标改善”到“可执行结构化动作”之间。
+Pure 的全程 6,712 个正常更新组中，只有 2 个组产生过任何 tool-call，只有 1 个组出现非零 format-valid，严格成功组为 0。相比之下，SFT→GRPO 的 6,726 个组全部产生 tool-call，6,131 个组至少含一条严格成功轨迹。Pure 的 answer accuracy 和 protocol-progress 明显上升，说明优化器并未完全失效；失败发生在“局部代理指标改善”到“可执行结构化动作”之间。
 
-两条路线虽然严格匹配 candidate groups 和 trajectories，却不匹配生成 token 或 wall time。Pure 正常更新组共产生 20,617,925 个 action token，warm 为 4,680,622 个，前者约为 4.41 倍；Pure 因中断恢复累计投入约 67.9 单卡小时，warm 为 32.27 小时。差异来自 Pure 几乎每条轨迹都撞满 384 token，而 warm 通常能完成调用并停止。因而 Track 1 是“固定采样次数”的行为可达性比较，不是等 FLOPs 的算法效率比较。
+两条路线虽然严格匹配 candidate groups 和 trajectories，却不匹配生成 token 或 wall time。Pure 正常更新组共产生 20,617,925 个 action token，SFT→GRPO 为 4,680,622 个，前者约为 4.41 倍；Pure 因中断恢复累计投入约 67.9 单卡小时，SFT→GRPO 为 32.27 小时。差异来自 Pure 几乎每条轨迹都撞满 384 token，而 SFT→GRPO 通常能完成调用并停止。因而 Track 1 是“固定采样次数”的行为可达性比较，不是等 FLOPs 的算法效率比较。
 
 ### 8.7 冻结 validation
 
@@ -519,22 +521,22 @@ Pure 的全程 6,712 个正常更新组中，只有 2 个组产生过任何 tool
 | SFT only | 30.469% | 46.094% | 98.438% | 99.023% | 33.594% | 67.09 |
 | SFT→GRPO | **65.625%** | **66.406%** | **100%** | **100%** | **65.625%** | 89.09 |
 
-这组结果直接分离了“数学答案改善”和“Agent 行为形成”：Pure 相对 Base 的 answer accuracy 提高 38.281 pp，却在 format、execution、evidence 和 strict 四项上全部为 0。SFT-only 已跨过协议门槛，warm GRPO 再把 strict 提高 35.156 pp。
+这组结果直接分离了“数学答案改善”和“Agent 行为形成”：Pure 相对 Base 的 answer accuracy 提高 38.281 pp，却在 format、execution、evidence 和 strict 四项上全部为 0。Agent-SFT 冷启动训练已使 SFT-only 跨过协议门槛，后续 GRPO 再把 strict 提高 35.156 pp。
 
-### 8.8 为什么 cold-start GRPO 没学会协议，而 warm-start GRPO 能继续增益
+### 8.8 为什么 Base-init GRPO 没学会协议，而 Agent-SFT-init GRPO 能继续增益
 
 原因不是一个单点 bug，而是策略支持、离散环境边界、组内相对目标和 credit assignment 共同形成的门槛。
 
 1. **On-policy RL 只能强化采样到的行为。** Base 几乎不给 `<tool_call>`、合法 JSON、正确工具名、参数和闭合标记这一整段动作分配足够联合概率。GRPO 的梯度来自已经采样的 token；如果一个组里没有可执行调用，它只能在一组 off-protocol 输出中选择“较不差”的样本，不能像 SFT 一样直接把正确 action 序列放进 loss。
 2. **工具环境是离散门。** parser 只有在标签、JSON、工具名和参数同时合法时才执行 calculator。协议进度从 0.712 升到 1.456 仍可能停留在裸 JSON、局部标记或参数片段；这些连续代理分不会产生 observation。Pure 因而几乎从未访问“工具返回结果后的第二轮状态”，也就无法学习基于 observation 作答。
 3. **Shaping 存在更容易的局部最优。** Pure 把 answer accuracy 从 5.375% 提高到 43.500%，同时 shaped reward 由 -2.354 提高到 +0.262；说明“直接算出或猜出数字、生成部分协议片段”是比完整工具调用更短的奖励路径。Pure 正常更新组的 shaped reward 方差从未为零，因此它并不缺梯度；问题是梯度主要沿代理指标方向，而 strict 所要求的串联事件仍是 0。
-4. **SFT 改变了策略支持和访问到的状态分布。** 两阶段 SFT 用可靠 oracle 直接监督 opening tag、JSON、closing tag、`<|im_end|>`、observation 后续动作和停止，并通过显式 `lm_head` LoRA 与结构 token 权重 8 让控制 token 成为可达的高概率动作。warm GRPO 从第一个窗口起就有 98.4% format-valid 和 99.3% tool execution，因此每个组都含可比较的真实 Agent 轨迹。
-5. **Warm GRPO 优化的是“哪条合法轨迹更好”，不是“如何偶然发明语法”。** 在已有协议支持上，组内优势可以奖励正确算式、正确 evidence 和最终答案，惩罚错误但格式合法的调用；strict 从前 200 组 51% 增至后 200 组 77%，evidence 从 52.2% 增至 77.9%，与这个机制一致。末 200 组零方差率升至 62%，主要因为更多 prompt 的 8 条轨迹一起成功，属于接近饱和后的信号减少，而不是 cold-start 那种从未进入环境。
-6. **序列长度和 KL 进一步放大差异。** Pure 每组几乎固定消耗 `8×384=3,072` action token，信用被摊在长而不收束的输出上；warm 平均约 696 token/group，动作更短且终止明确。`β=0.02` 的 reference KL 又要求局部更新：Pure 的 reference 本身不支持协议，大幅跨越行为模式会受罚；warm 的 reference 已处在正确行为流形附近，小步更新即可改进任务质量。
+4. **Agent-SFT 冷启动训练改变了策略支持和访问到的状态分布。** 两阶段 SFT 用可靠 oracle 直接监督 opening tag、JSON、closing tag、`<|im_end|>`、observation 后续动作和停止，并通过显式 `lm_head` LoRA 与结构 token 权重 8 让控制 token 成为可达的高概率动作。Agent-SFT-init GRPO 从第一个窗口起就有 98.4% format-valid 和 99.3% tool execution，因此每个组都含可比较的真实 Agent 轨迹。
+5. **Agent-SFT-init GRPO 优化的是“哪条合法轨迹更好”，不是“如何偶然发明语法”。** 在已有协议支持上，组内优势可以奖励正确算式、正确 evidence 和最终答案，惩罚错误但格式合法的调用；strict 从前 200 组 51% 增至后 200 组 77%，evidence 从 52.2% 增至 77.9%，与这个机制一致。末 200 组零方差率升至 62%，主要因为更多 prompt 的 8 条轨迹一起成功，属于接近饱和后的信号减少，而不是 Base-init GRPO 从未进入环境的情况。
+6. **序列长度和 KL 进一步放大差异。** Pure 每组几乎固定消耗 `8×384=3,072` action token，信用被摊在长而不收束的输出上；SFT→GRPO 平均约 696 token/group，动作更短且终止明确。`β=0.02` 的 reference KL 又要求局部更新：Pure 的 reference 本身不支持协议，大幅跨越行为模式会受罚；SFT→GRPO 的 reference 已处在正确行为流形附近，小步更新即可改进任务质量。
 
-因此，SFT 在这里不是简单地“提前提高分数”，而是在策略空间中建立了一条可由 on-policy GRPO 继续优化的行为通道。cold-start 分支学到的是答案和协议片段的代理能力；warm-start 分支已经进入可执行环境，RL 才能把奖励用于算式选择、证据利用和最终正确性。
+因此，Agent-SFT 作为 RL 系统的冷启动训练，不是简单地“提前提高分数”，而是在策略空间中建立一条可由 on-policy GRPO 继续优化的行为通道。Base-init GRPO 学到的是答案和协议片段的代理能力；Agent-SFT-init GRPO 已经进入可执行环境，RL 才能把奖励用于算式选择、证据利用和最终正确性。
 
-这一解释只适用于当前模型、LoRA 容量、采样策略、reward、单 seed 和 53,808 轨迹预算。它不证明 GRPO 原理上不能 cold start；约束解码、离线成功轨迹、探索奖励、更强结构化 action head、不同 KL/熵调度或更大预算都可能改变结论。
+这一解释只适用于当前模型、LoRA 容量、采样策略、reward、单 seed 和 53,808 轨迹预算。它不证明 Base-init GRPO 原理上无法学会协议；约束解码、离线成功轨迹、探索奖励、更强结构化 action head、不同 KL/熵调度或更大预算都可能改变结论。
 
 ### 8.9 Official test 与结论边界
 
@@ -549,11 +551,11 @@ Pure 的全程 6,712 个正常更新组中，只有 2 个组产生过任何 tool
 
 Pure 在正式测试上把 answer accuracy 相对 Base 提高 32.676 pp，但 strict、format、tool execution 与 evidence 仍全部为 0；因此训练与 validation 中观察到的失败完整外推到了未参与训练的 official test。Pure−Base strict 差值为 0，两个模型都没有任何严格成功题。
 
-SFT→GRPO 相对 SFT-only 增加 `+29.871 pp`。20,000 次同题 paired bootstrap 95% CI 为 `[+26.990, +32.752] pp`；warm-RL-only 成功 444 题、SFT-only-only 成功 50 题、共同成功 446 题，exact McNemar `p=5.40e-80`。SFT→GRPO 相对 Pure 的差值为 `+67.475 pp`，95% CI `[+64.898, +69.977] pp`。这说明 warm-start 增量不是少数题目的随机翻转，但仍只代表单 training seed。
+SFT→GRPO 相对 SFT-only 增加 `+29.871 pp`。20,000 次同题 paired bootstrap 95% CI 为 `[+26.990, +32.752] pp`；仅后续 GRPO 成功 444 题、仅 SFT-only 成功 50 题、共同成功 446 题，exact McNemar `p=5.40e-80`。SFT→GRPO 相对 Pure 的差值为 `+67.475 pp`，95% CI `[+64.898, +69.977] pp`。这说明 Agent-SFT 后的 GRPO 增量不是少数题目的随机翻转，但仍只代表单 training seed。
 
 本实验只有一个 training seed，且 SFT 与 GRPO 的监督密度和计算量不同，因此四臂结果只能支持当前配置内的机制解释，不能写成普遍的 SFT-vs-RL 算力效率结论。完整设计、公式、奖励、恢复和审计条件见 [`docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md`](STAGE2_TRACK1_EXPERIMENT_REPORT.md)；Pure 中断证据见 [`docs/STAGE2_TRACK1_TERMINATION_REPORT.md`](STAGE2_TRACK1_TERMINATION_REPORT.md)。
 
-## 9. SVAMP：跨数据集 warm-GRPO
+## 9. SVAMP：跨数据集 SFT-init GRPO
 
 ### 9.1 设计与训练完整性
 
@@ -568,10 +570,10 @@ SFT→GRPO 相对 SFT-only 增加 `+29.871 pp`。20,000 次同题 paired bootstr
 | 模型 | Strict | Answer | Format valid | Tool execution | Evidence | Avg tokens |
 |---|---:|---:|---:|---:|---:|---:|
 | Additional-SFT(B) zero-shot | 67.935% | 71.739% | 98.913% | 99.457% | 70.109% | 39.91 |
-| SVAMP warm GRPO | **76.087%** | **79.891%** | **99.457%** | **99.457%** | **76.630%** | 38.69 |
+| SVAMP SFT-init GRPO | **76.087%** | **79.891%** | **99.457%** | **99.457%** | **76.630%** | 38.69 |
 | 绝对变化 | **+8.152 pp** | **+8.152 pp** | +0.543 pp | 0 pp | **+6.522 pp** | -1.22 |
 
-工具执行在起点已经接近饱和，GRPO 的主要增益来自答案和 evidence，而不是重复学习格式。这与 Track 1 warm 分支的机制一致：协议先验把轨迹送入可执行状态空间，RL 再优化任务质量。SVAMP 结果也表明这种增量不局限于 GSM8K 原训练题，但 184 题、单训练 seed 的规模仍不足以作广泛跨域结论。
+工具执行在起点已经接近饱和，GRPO 的主要增益来自答案和 evidence，而不是重复学习格式。这与 Track 1 SFT→GRPO 分支的机制一致：协议先验把轨迹送入可执行状态空间，RL 再优化任务质量。SVAMP 结果也表明这种增量不局限于 GSM8K 原训练题，但 184 题、单训练 seed 的规模仍不足以作广泛跨域结论。
 
 同题配对中，GRPO-only 成功 26 题、zero-shot-only 成功 11 题、共同成功 114 题、共同失败 33 题；strict 差值 `+8.152 pp` 的 20,000 次 paired bootstrap 95% CI 为 `[+1.630, +14.674] pp`，exact McNemar `p=0.0201`。区间以这 184 道题为抽样单位，只支持当前训练 seed 下的题目级差异。
 
@@ -582,8 +584,8 @@ SFT→GRPO 相对 SFT-only 增加 `+29.871 pp`。20,000 次同题 paired bootstr
 - **可优化行为先验比算法公式更先决。** MiniMind 通过 Agent-SFT 已能稳定执行协议，group-relative RL 才能比较；Qwen Base 在控制 token 上失配时，即使答案偶尔正确也无法进入 Agent 环境。
 - **工具执行率不等于任务能力。** Stage 1 的工具执行接近 100%，strict success 仍只有约 3%，瓶颈已转移到算式规划和证据组合。
 - **奖励密度决定 RL 的有效样本率。** DAPO 只保留约 18.56% 有效组；Track 2 strict-GRPO 后期约八成组零方差。训练脚本在跑、loss 有数值，不代表每组都提供学习信号。
-- **Warm start 的价值是把问题从“发明协议”改成“优化任务质量”。** Track 1 Pure 的 shaped reward 和 answer 均上升但工具执行为 0；warm 分支的每个训练组都进入工具环境，strict 从首 200 组 51% 提高到末 200 组 77%。
-- **Warm start 不是充分条件，仍需组内可排序性。** Track 2 的弱 Agent-SFT 起点在 strict reward 下仍有 80% 以上零方差组，所以 GRPO 只增加约 1.7 pp；SVAMP 的强起点 probe 有 67.97% 有效组，GRPO 在 holdout 上增加 8.15 pp。
+- **Agent-SFT 冷启动训练的价值是把问题从“发明协议”改成“优化任务质量”。** Track 1 Pure 的 shaped reward 和 answer 均上升但工具执行为 0；SFT→GRPO 分支的每个训练组都进入工具环境，strict 从首 200 组 51% 提高到末 200 组 77%。
+- **Agent-SFT 初始化不是充分条件，仍需组内可排序性。** Track 2 的弱 Agent-SFT 起点在 strict reward 下仍有 80% 以上零方差组，所以 GRPO 只增加约 1.7 pp；SVAMP 的强 SFT 起点 probe 有 67.97% 有效组，GRPO 在 holdout 上增加 8.15 pp。
 - **监督和 RL 的比较必须明确 oracle 条件。** Additional-SFT(B) 的强结果来自密集且可靠的 action oracle，不能与没有 oracle 的现实任务直接类比。
 - **评测必须 fail-closed。** 数据哈希、分片数、题目覆盖、adapter hash、预算、finite tensor 和 manifest 任一不满足，结果都不能进入正式统计。
 
@@ -592,7 +594,7 @@ SFT→GRPO 相对 SFT-only 增加 `+29.871 pp`。20,000 次同题 paired bootstr
 | Stage 1 Agent-SFT → DAPO | 99.791% | 2.199% | 3.319% | +1.120 pp |
 | Track 2 Agent-SFT(A) → GRPO(B) | 38.666% | 0.910% | 2.654% | +1.744 pp |
 | Track 1 SFT-only → SFT→GRPO | 99.507% | 37.604% | 67.475% | +29.871 pp |
-| SVAMP zero-shot warm adapter → GRPO | 99.457% | 67.935% | 76.087% | +8.152 pp |
+| SVAMP 未更新 SFT adapter → GRPO | 99.457% | 67.935% | 76.087% | +8.152 pp |
 
 该表只能作机制对照，不能横向排名算法：Stage 1/Track 2 使用 strict reward，Track 1 使用 shaped curriculum，模型规模、数据和训练预算也不同。共同模式是：起点至少要能产生真实工具轨迹，RL 才有机会优化后续任务质量；增量大小还取决于组内方差、起点能力和奖励密度。
 
@@ -612,7 +614,7 @@ Stage 1 的协议与工具执行已经饱和，因此继续优化 parser 或格�
 - Stage 1 DAPO 的 test KL 为 `0.01453±0.00131`，伴随输出缩短 9.09% 和准确率上升，属于受控改变而非长度膨胀。
 - Track 2 GRPO(A/B) 的全程平均 KL 分别约 0.00442/0.00274，最大审计 KL 约 0.041，且 0 次安全拒绝；正式 strict-GRPO 数值稳定。
 - Track 1 Pure 的正常更新组平均 KL k3 为 0.04590，但 14 个孤立重尾组超过阈值 10；最大被拒绝组的 action-token mean KL 达 157,931.45，单 token 最大值达 485,165,152。安全门在 backward 前隔离异常组，因此不能只看常规均值，也必须保留尾部诊断。
-- Base 与 Pure 大量轨迹撞满 384 token；SFT 后平均 action token 显著下降。收束能力本身是 Agent warm start 的关键收益。
+- Base 与 Pure 大量轨迹撞满 384 token；Agent-SFT 后平均 action token 显著下降。收束能力本身是 RL 系统冷启动训练的关键收益。
 
 ### 10.4 监督效率与 RL 适用条件
 
@@ -622,7 +624,7 @@ Additional-SFT 的优势不能简单归结为“算法更强”，因为它拥�
 
 ### 10.5 跨阶段比较的边界
 
-MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区间，不能据此说模型规模没有作用。两阶段的 base checkpoint、SFT 数据覆盖、prompt 模板、adapter、reward curriculum、decode seeds 和训练预算都不同。真正可比较的是各自阶段内部的受控增量：Stage 1 比较算法目标，Track 2 比较训练路线，Track 1 比较是否 warm start。
+MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区间，不能据此说模型规模没有作用。两阶段的 base checkpoint、SFT 数据覆盖、prompt 模板、adapter、reward curriculum、decode seeds 和训练预算都不同。真正可比较的是各自阶段内部的受控增量：Stage 1 比较算法目标，Track 2 比较训练路线，Track 1 比较是否经过 Agent-SFT 冷启动训练。
 
 ### 10.6 可以据实声称的结论
 
@@ -630,8 +632,8 @@ MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区
 2. Stage 1 完成四算法、三训练种子、共同候选预算的正式比较，DAPO 获得稳定的小幅增益；
 3. Stage 2 Track 2 完成五臂 official test 和配对统计，GRPO 有小幅正增益，Additional-SFT(B) 在当前条件下显著更强；
 4. 正式成功不能由格式奖励、猜答案或伪造工具结果获得；
-5. Track 1 完整四臂审计证明：在当前配置中 Pure GRPO 虽显著改善答案命中，却未学会可执行协议；SFT 先建立协议后，warm GRPO 相对 SFT-only 获得 +29.871 pp 的独立严格成功增量；
-6. SVAMP warm-GRPO 在跨数据集 holdout 上取得 +8.152 pp 增量；
+5. Track 1 完整四臂审计证明：在当前配置中 Pure GRPO 虽显著改善答案命中，却未学会可执行协议；Agent-SFT 冷启动训练先建立协议后，后续 GRPO 相对 SFT-only 获得 +29.871 pp 的独立严格成功增量；
+6. SVAMP SFT-init GRPO 在跨数据集 holdout 上取得 +8.152 pp 增量；
 7. 测试、权重、数据边界和结果产物均可审计。
 
 ### 10.7 不能声称的结论
@@ -641,7 +643,7 @@ MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区
 3. Stage 2 Track 2 只有一个 training seed，题目级区间不能替代跨训练 seed 方差；
 4. Additional-SFT 与 GRPO 没有做严格 wall-clock/FLOPs 等预算配平；
 5. Track 1 与 SVAMP 各只有一个 training seed，题目级显著性不能替代跨训练重复的稳定性；
-6. cold-start 失败只适用于当前模型、action representation、奖励、采样与预算，不能声称 GRPO 原理上无法从零学会协议；
+6. Base-init GRPO 的失败只适用于当前模型、action representation、奖励、采样与预算，不能声称 GRPO 原理上无法从 Base 学会协议；
 7. official test 已用于最终报告，不应继续用它选择学习率、reward 或 checkpoint。
 
 ## 11. 完成度与后续优先级
@@ -657,13 +659,13 @@ MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区
 | Stage 2 Track 2 五臂训练 | 完成 | A/B 边界与预算一致 |
 | Stage 2 Track 2 1,319 题评测与最终审计 | 完成 | Audit PASS |
 | Stage 2 Track 1 四臂训练、评测与审计 | 完成 | 4×1,319 test；Audit PASS |
-| Stage 2 SVAMP warm-GRPO | 完成 | 816 groups；184 holdout；Audit PASS |
+| Stage 2 SVAMP SFT-init GRPO | 完成 | 816 groups；184 holdout；Audit PASS |
 
 若继续推进，优先级应为：
 
 1. 若有额外预算，优先补 Stage 2 Track 1、Track 2 与 SVAMP 的 training seeds，而不是反复在 official test 上调参；
 2. 新的算法改进应在新的 validation 或嵌套验证上进行，重点优化结构化动作可达性、算式规划、证据利用和非零方差组比例；
-3. cold-start 后续研究应单独比较约束解码、离线成功轨迹、探索奖励、结构化 action head 和 KL/熵调度，不能复用已查看的 official test 选型。
+3. Base-init GRPO 的后续研究应单独比较约束解码、离线成功轨迹、探索奖励、结构化 action head 和 KL/熵调度，不能复用已查看的 official test 选型。
 
 ## 12. 结果与证据索引
 
@@ -706,7 +708,7 @@ MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区
 | `results/stage2_track1/official_test_metrics.csv` | 四臂指标与 Wilson 95% 区间 |
 | `results/stage2_track1/official_test_statistics.json` | paired bootstrap 与 exact McNemar 统计 |
 | `results/stage2_track1/final_results_audit.json` | 数据、预算、adapter、validation/test 覆盖和终态审计 |
-| `results/stage2_track1/training_dynamics.json` | Pure/warm 的窗口动态与累计 token |
+| `results/stage2_track1/training_dynamics.json` | Pure/SFT→GRPO 的窗口动态与累计 token |
 | `results/stage2_track1/pure_grpo_termination_summary.json` | 历史中断、恢复与完成后的终态计数 |
 
 ### 12.5 SVAMP 机器可读结果
@@ -720,6 +722,6 @@ MiniMind-64M DAPO 与 Qwen3-4B GRPO 的 strict accuracy 都处在约 2%–3% 区
 
 ## 13. 最终结论
 
-项目已完成四个可以独立审计的 Agentic RL 实验层级。Stage 1 证明：在已经掌握工具协议的小模型上，group-relative RL 能带来真实但有限的提升，DAPO 在相同候选预算下表现最好。Stage 2 Track 2 进一步证明：Agent-SFT 提供了必要的行为先验，strict-GRPO 能继续改进，但奖励稀疏使有效学习组不足；当可靠的完整 Agent oracle 可用时，继续监督学习在当前设置下远强于单纯依赖在线严格奖励。Track 1 的完整四臂结果证明：dense shaping 可以把 cold-start 的答案命中从 4.246% 提高到 36.922%，却不能在当前预算内跨过结构化工具执行边界；两阶段 SFT 使协议可达后，warm GRPO 又把严格成功从 37.604% 提高到 67.475%。SVAMP 则给出跨数据集的独立支持：协议已掌握时，warm GRPO 在 holdout 上继续增加 8.152 pp。
+项目已完成四个可以独立审计的 Agentic RL 实验层级。Stage 1 证明：在已经掌握工具协议的小模型上，group-relative RL 能带来真实但有限的提升，DAPO 在相同候选预算下表现最好。Stage 2 Track 2 进一步证明：Agent-SFT 作为 RL 系统的冷启动训练，提供了必要的行为先验；strict-GRPO 能继续改进，但奖励稀疏使有效学习组不足。当可靠的完整 Agent oracle 可用时，继续监督学习在当前设置下远强于单纯依赖在线严格奖励。Track 1 的完整四臂结果证明：dense shaping 可以把 Base-init GRPO 的答案命中从 4.246% 提高到 36.922%，却不能在当前预算内跨过结构化工具执行边界；两阶段 Agent-SFT 使协议可达后，后续 GRPO 又把严格成功从 37.604% 提高到 67.475%。SVAMP 则给出跨数据集的独立支持：协议已掌握时，SFT-init GRPO 在 holdout 上继续增加 8.152 pp。
 
 最重要的项目成果不是单一准确率数字，而是一条可复现、可归因、可拒绝伪成功的工程与实验链：数据边界明确，工具在环境中真实执行，reward 与证据绑定，训练预算可核验，validation 与 test 职责分离，结果经过逐题统计与 fail-closed 审计。这使后续对 reward curriculum、模型规模、工具规划或多 seed 稳定性的研究有了可信基线。

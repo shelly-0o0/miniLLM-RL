@@ -32,7 +32,7 @@ DAPO 的三个训练种子在 test 上分别为 `3.2853%`、`3.6391%`、`3.0326%
 
 本轮回答三个问题：
 
-1. 只使用 train 的 oracle 轨迹做 Agent-SFT，能否建立可训练的工具调用冷启动？
+1. 只使用 train 的 oracle 轨迹做 Agent-SFT，能否建立可训练的 RL 系统冷启动？
 2. 在共同 Agent-SFT 起点、共同候选 rollout 预算下，四种 group-relative 策略目标谁在 validation 上最好？
 3. validation 选出的算法能否在从未用于选择的 official test 上保持增量？
 

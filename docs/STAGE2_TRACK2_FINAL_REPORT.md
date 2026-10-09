@@ -20,7 +20,7 @@ GSM8K 官方训练集先按题目 ID 确定性划为互斥 A/B 池，官方 1,31
 | 实验臂 | 初始化 | 后续数据与目标 | 回答的问题 |
 |---|---|---|---|
 | Base | Qwen3-4B-Base | 无 | 未后训练模型能否完成工具协议 |
-| Agent-SFT(A) | Base | A 池可靠 oracle，assistant-only SFT | Agent warm start 的作用 |
+| Agent-SFT(A) | Base | A 池可靠 oracle，assistant-only SFT | RL 系统冷启动训练的作用 |
 | GRPO(A) | Agent-SFT(A) | A 池在线 rollout，strict RLVR | 已见题上继续 RL 的作用 |
 | GRPO(B) | Agent-SFT(A) | 与 A 互斥的 B 池在线 rollout，strict RLVR | 新题上在线 RL 的作用 |
 | Additional-SFT(B) | Agent-SFT(A) | B 池可靠 oracle，assistant-only SFT | 同一 B 数据上继续 SFT 与 RL 的差异 |
@@ -140,7 +140,7 @@ Stage 2 Track 2 result audit: PASS
 - 只有一个训练 seed 和一个 decode seed。题目级置信区间不能替代跨训练 seed 方差；“显著”只表示这次训练下的逐题配对差异。
 - 没有做相同 wall-clock/FLOPs 的 SFT/RL 预算配平；Additional-SFT 使用 oracle，而 GRPO 使用在线稀疏奖励。
 - 结果适用于 Qwen3-4B-Base、当前 LoRA 配置、calculator 环境和 GSM8K，不等于普遍的 SFT/RL 排名。
-- Stack1 Pure GRPO 与 SFT→GRPO 的长程四臂实验没有作为本 Track 完成条件，不能用本报告声称 full-scale Pure-vs-warm-start 结论。
+- Stack1 Pure GRPO 与 SFT→GRPO 的长程四臂实验没有作为本 Track 完成条件，不能用本报告声称 full-scale Base-init-vs-Agent-SFT-init GRPO 结论。
 
 在这些边界内，Track 2 已完整回答预设问题：Agent-SFT 提供必要行为先验；strict Agentic GRPO 可以进一步改善，但信号稀疏；当可靠工具 oracle 可获得时，继续 SFT 是当前最有效的路线。
 
@@ -203,4 +203,4 @@ Base 约 4.25% 的正确答案全部缺乏 Agent 行为，说明 answer-only acc
 
 ### 10.6 数值稳定性与策略漂移
 
-GRPO(A/B) 全程平均 KL k3 约为 0.00442/0.00274，最大审计 KL 约为 0.0406/0.0411，均无安全拒绝和非有限 tensor。rollout logprob MAE 在训练前后没有恶化，说明性能受限主要不是优化爆炸，而是可用 reward signal 太少。单纯进一步收紧 KL 很可能降低探索，放宽 KL 也不会自动创造正确轨迹；优先级应放在更好的 warm start、过程反馈或提高有效组比例。
+GRPO(A/B) 全程平均 KL k3 约为 0.00442/0.00274，最大审计 KL 约为 0.0406/0.0411，均无安全拒绝和非有限 tensor。rollout logprob MAE 在训练前后没有恶化，说明性能受限主要不是优化爆炸，而是可用 reward signal 太少。单纯进一步收紧 KL 很可能降低探索，放宽 KL 也不会自动创造正确轨迹；优先级应放在更好的 Agent-SFT 冷启动训练、过程反馈或提高有效组比例。

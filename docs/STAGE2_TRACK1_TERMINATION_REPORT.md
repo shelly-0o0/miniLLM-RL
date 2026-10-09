@@ -54,7 +54,7 @@ Track 1 的 `pure_grpo` 在消费 5,363/6,726 个候选组后曾人工停止。�
 
 这说明安全门按设计工作，但也说明只看常规组的平均 KL 会掩盖极端 reference-drift 尾部。终止是基于行为失败和计算收益，而不是一次数值崩溃。
 
-## 5. 与 warm-start 路线的关系
+## 5. 与 Agent-SFT-init GRPO 路线的关系
 
 同配置的 `SFT→GRPO` 已完成 6,726/6,726 组，并在冻结的 1,319 题 official test shard 上取得：
 
@@ -63,19 +63,19 @@ Track 1 的 `pure_grpo` 在消费 5,363/6,726 个候选组后曾人工停止。�
 - format valid rate：98.8628%；
 - tool execution success：99.6209%。
 
-训练后段的 warm-start 分支仍有高密度可执行行为，而 cold-start 分支直到 53,808 条轨迹结束仍为零严格成功；末 200 组工具调用仍为 0。统一 validation 进一步确认 Pure 没有形成工具协议。
+训练后段的 SFT→GRPO 分支仍有高密度可执行行为，而 Base-init Pure GRPO 直到 53,808 条轨迹结束仍为零严格成功；末 200 组工具调用仍为 0。统一 validation 进一步确认 Pure 没有形成工具协议。这里的 Agent-SFT 是 RL 系统的冷启动训练；SFT→GRPO 表示使用该冷启动训练产物初始化后再运行 GRPO。
 
 最终 1,319 题 official test 进一步得到：strict 0%、answer 36.9219%、format/tool execution/evidence 均为 0、平均响应 384 token；终态四臂审计为 `PASS`。因此训练期和 validation 的负证据完整延伸到了冻结测试集，但答案命中明显高于 Base 的 4.2456%，再次证明“数学答案代理能力”和“可执行 Agent 协议”是两件不同的事。
 
-SFT-only 的 1,319 题 official-test strict 为 37.6042%，SFT→GRPO 为 67.4754%，同题增量 +29.871 pp。因而不能把 warm 分支的总分全部归因给 SFT，也不能全部归因给 GRPO：前者建立协议可达性，后者在该起点上继续提高任务质量。实验仍只有一个 training seed，且 SFT/RL 不等 FLOPs，不能外推为普遍因果定律。
+SFT-only 的 1,319 题 official-test strict 为 37.6042%，SFT→GRPO 为 67.4754%，同题增量 +29.871 pp。因而不能把 SFT→GRPO 分支的总分全部归因给 Agent-SFT，也不能全部归因给 GRPO：前者建立协议可达性，后者在该起点上继续提高任务质量。实验仍只有一个 training seed，且 SFT/RL 不等 FLOPs，不能外推为普遍因果定律。
 
 ## 6. 中断快照可以说明什么
 
 结合完成后的训练和 validation，可以声称：
 
-1. 在本项目的 Qwen3-4B-Base、fresh LoRA、`G=8`、shaped curriculum 条件下，cold-start GRPO 在完整 53,808 条轨迹预算内没有学会可执行 Agent 协议；
+1. 在本项目的 Qwen3-4B-Base、fresh LoRA、`G=8`、shaped curriculum 条件下，Base-init GRPO（无 Agent-SFT 初始化）在完整 53,808 条轨迹预算内没有学会可执行 Agent 协议；
 2. dense shaping 能提高答案命中和局部协议进度，但不能保证跨越结构化工具调用边界；
-3. warm-start SFT→GRPO 已形成稳定工具行为并取得较高冻结测试成功率；
+3. Agent-SFT-init GRPO（SFT→GRPO）已形成稳定工具行为并取得较高冻结测试成功率；
 4. KL 安全门成功隔离了 14 个重尾组，没有把异常更新写入策略；
 5. SFT→GRPO 相对 SFT-only 的 official-test strict 增量为 +29.871 pp。
 

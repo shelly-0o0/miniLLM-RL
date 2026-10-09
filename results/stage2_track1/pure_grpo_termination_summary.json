@@ -118,5 +118,5 @@
     "final_results_audit": "results/stage2_track1/final_results_audit.json",
     "final_results_audit_status": "PASS"
   },
-  "conclusion_boundary": "Under the tested Qwen3-4B-Base, fresh-LoRA, shaped-GRPO, G=8, single-seed protocol, cold-start training improved direct answer accuracy but did not acquire executable agent behavior within 53,808 trajectories. This does not establish that GRPO cannot cold-start under different action representations, exploration methods, rewards, KL schedules, models, or budgets."
+  "conclusion_boundary": "Under the tested Qwen3-4B-Base, fresh-LoRA, shaped-GRPO, G=8, single-seed protocol, Base-init GRPO without Agent-SFT initialization improved direct answer accuracy but did not acquire executable agent behavior within 53,808 trajectories. Agent-SFT is designated as the RL system's cold-start training stage. This does not establish that Base-init GRPO cannot learn the protocol under different action representations, exploration methods, rewards, KL schedules, models, or budgets."
 }

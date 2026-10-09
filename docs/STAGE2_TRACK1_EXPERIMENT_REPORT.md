@@ -8,27 +8,27 @@
 
 ## 1. 实验要回答的问题
 
-Track 1 的核心问题不是“哪个 checkpoint 分数最高”，而是 **Agent-SFT 提供的行为先验是否改变 GRPO 的可优化性**。实验把总效果拆成四条路线：
+Track 1 的核心问题不是“哪个 checkpoint 分数最高”，而是 **Agent-SFT 提供的行为先验是否改变 GRPO 的可优化性**。本文统一把 Agent-SFT 称为 **RL 系统的冷启动训练**；两条 GRPO 按初始化来源分别写作 Base-init GRPO（Pure）和 Agent-SFT-init GRPO（SFT→GRPO）。实验把总效果拆成四条路线：
 
 ```text
                               ┌─ Base（不训练）
 Qwen3-4B-Base ────────────────┤
-                              └─ Pure GRPO（cold start）
+                              └─ Pure GRPO（Base-init，无 Agent-SFT）
 
 Qwen3-4B-Base ── Agent-SFT ───┬─ SFT only
-                              └─ SFT → GRPO（warm start）
+                              └─ SFT → GRPO（Agent-SFT-init）
 ```
 
 四臂分别支持以下受控比较：
 
 | 比较 | 估计的效应 | 主要解释 |
 |---|---|---|
-| Base → SFT only | 监督行为先验 | SFT 是否教会模型进入工具协议、使用 observation 并正确停止 |
-| Base → Pure GRPO | cold-start RL 总效应 | 不依赖行为示范，课程奖励本身能否让 Base 跨过结构化动作边界 |
-| SFT only → SFT→GRPO | warm-start 后的 RL 增量 | 已有 Agent 行为后，GRPO 是否继续提高严格任务成功率 |
-| Pure GRPO ↔ SFT→GRPO | 初始化效应 | 在相同 GRPO 数据、目标、奖励和预算下，warm start 是否改变训练可达性 |
+| Base → SFT only | Agent-SFT 冷启动训练效应 | SFT 是否教会模型进入工具协议、使用 observation 并正确停止 |
+| Base → Pure GRPO | Base-init GRPO 总效应 | 不依赖行为示范，课程奖励本身能否让 Base 跨过结构化动作边界 |
+| SFT only → SFT→GRPO | Agent-SFT 后的 RL 增量 | 已有 Agent 行为后，GRPO 是否继续提高严格任务成功率 |
+| Pure GRPO ↔ SFT→GRPO | 初始化效应 | 在相同 GRPO 数据、目标、奖励和预算下，Agent-SFT 初始化是否改变训练可达性 |
 
-因此 **SFT only 必须评测**。如果只有 SFT→GRPO 的分数，就无法区分“性能来自 SFT”还是“GRPO 在 SFT 基础上继续带来增益”；也不能把 warm 分支的总提升全部归因给 RL。同理，Base 是两条路线的共同原点，Pure GRPO 是检验 RL 能否从零建立 Agent 协议的必要对照。
+因此 **SFT only 必须评测**。如果只有 SFT→GRPO 的分数，就无法区分“性能来自 Agent-SFT 冷启动训练”还是“GRPO 在 SFT 基础上继续带来增益”；也不能把 SFT→GRPO 分支的总提升全部归因给 RL。同理，Base 是两条路线的共同原点，Pure GRPO 是检验 Base-init GRPO 能否建立 Agent 协议的必要对照。
 
 这是一项机制导向的四臂消融，而不是严格的 FLOPs 或 wall-clock 配平实验。SFT 使用可靠 oracle action，GRPO 使用 8 倍在线采样和 verifier reward，两者监督密度与计算量不同；可以比较在当前协议下的训练路线效果，但不能据此声称普遍的 SFT-vs-RL 计算效率因果关系。
 
@@ -98,9 +98,9 @@ assistant  最终答案                            监督 token
 - `SFT only` 的终态评测对象；
 - `SFT→GRPO` 的唯一初始化起点。
 
-这样可避免 warm 分支与 SFT-only 使用不同的监督 checkpoint，从而保证 `SFT only → SFT→GRPO` 只增加 GRPO 处理。
+这样可避免 SFT→GRPO 分支与 SFT-only 使用不同的监督 checkpoint，从而保证 `SFT only → SFT→GRPO` 只增加 GRPO 处理。
 
-修复前三个协议 token 的 teacher-forced Top-1/Top-20 均为 0。正式修复完成 415 optimizer steps、6,637 条样本，耗时 3,199.65 秒，`train_loss=0.468097`；修复后三个结构 token 的 Top-1 达 99.6396%，其中 `<tool_call>`/`</tool_call>` 均为 100%，`<|im_end|>` 为 98.4375%，普通位置误触发仅 0.0847%。因此 warm-start 的“协议可达性”有独立的 token-level 验收证据。
+修复前三个协议 token 的 teacher-forced Top-1/Top-20 均为 0。正式修复完成 415 optimizer steps、6,637 条样本，耗时 3,199.65 秒，`train_loss=0.468097`；修复后三个结构 token 的 Top-1 达 99.6396%，其中 `<tool_call>`/`</tool_call>` 均为 100%，`<|im_end|>` 为 98.4375%，普通位置误触发仅 0.0847%。因此 Agent-SFT 冷启动训练的“协议可达性”有独立的 token-level 验收证据。
 
 ## 5. 两条 GRPO 分支
 
@@ -232,9 +232,9 @@ SFT→GRPO 的 1,319 题 official-test shard 已先完成，strict task accuracy
 ### 10.1 预期模式
 
 - 若 Base 与 Pure 都几乎没有合法工具动作，而 SFT-only 与 SFT→GRPO 有稳定执行，支持“行为先验决定协议可达性”；
-- 若 SFT→GRPO 明显高于 SFT-only，支持“warm-start 后 RL 有独立增量”；
-- 若 SFT-only 与 SFT→GRPO 接近，说明 warm 分支高分主要来自 SFT，而不是 GRPO；
-- 若 Pure 完成后接近或超过 warm 分支，则反驳“本设置必须依赖 SFT 才能学会 Agent 协议”的强版本；
+- 若 SFT→GRPO 明显高于 SFT-only，支持“Agent-SFT 后的 RL 有独立增量”；
+- 若 SFT-only 与 SFT→GRPO 接近，说明 SFT→GRPO 分支高分主要来自 Agent-SFT，而不是 GRPO；
+- 若 Pure 完成后接近或超过 SFT→GRPO 分支，则反驳“本设置必须依赖 Agent-SFT 才能学会 Agent 协议”的强版本；
 - 若 shaped reward 上升但 strict/tool execution 不升，只能说明课程奖励改善局部代理指标，不能说明 Agent 能力形成。
 
 ### 10.2 不能越过的结论边界
@@ -243,16 +243,16 @@ SFT→GRPO 的 1,319 题 official-test shard 已先完成，strict task accuracy
 
 ## 11. 训练与 validation 结果
 
-两条 GRPO 都完成预定的 6,726 groups / 53,808 trajectories。Pure 完成 6,712 次参数更新、14 次 KL safety rejection；warm 完成 6,726 次更新、0 次拒绝。
+两条 GRPO 都完成预定的 6,726 groups / 53,808 trajectories。Pure 完成 6,712 次参数更新、14 次 KL safety rejection；SFT→GRPO 完成 6,726 次更新、0 次拒绝。
 
 | 分支与窗口 | Shaped reward | Answer | Strict | Format | Tool execution | Evidence | Tokens/group |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Pure 前 200 组 | -2.354 | 5.375% | 0% | 0% | 0% | 0% | 3,070.14 |
 | Pure 后 200 组 | +0.262 | 43.500% | 0% | 0% | 0% | 0% | 3,072.00 |
-| Warm 前 200 组 | +3.772 | 55.625% | 51.000% | 98.438% | 99.323% | 52.188% | 655.06 |
-| Warm 后 200 组 | +4.940 | 78.125% | 77.000% | 99.188% | 99.938% | 77.875% | 665.90 |
+| SFT→GRPO 前 200 组 | +3.772 | 55.625% | 51.000% | 98.438% | 99.323% | 52.188% | 655.06 |
+| SFT→GRPO 后 200 组 | +4.940 | 78.125% | 77.000% | 99.188% | 99.938% | 77.875% | 665.90 |
 
-Pure 的正常更新组共产生 20,617,925 个 action token，warm 为 4,680,622 个，约相差 4.41 倍；累计单卡时间约为 67.9 小时与 32.27 小时。实验匹配的是候选组/轨迹预算，不是生成 token 或 FLOPs。
+Pure 的正常更新组共产生 20,617,925 个 action token，SFT→GRPO 为 4,680,622 个，约相差 4.41 倍；累计单卡时间约为 67.9 小时与 32.27 小时。实验匹配的是候选组/轨迹预算，不是生成 token 或 FLOPs。
 
 统一的 128 题 validation 为：
 
@@ -263,7 +263,7 @@ Pure 的正常更新组共产生 20,617,925 个 action token，warm 为 4,680,62
 | SFT only | 30.469% | 46.094% | 98.438% | 99.023% | 33.594% | 67.09 |
 | SFT→GRPO | **65.625%** | **66.406%** | **100%** | **100%** | **65.625%** | 89.09 |
 
-Pure 显著提高了答案命中和 shaped reward，却没有形成任何稳定的可解析工具动作；warm 分支从第一批轨迹起就在可执行行为分布内，GRPO 因而能进一步优化算式选择、evidence 和最终答案。完整机制解释见 [项目完整实验报告](PROJECT_SUMMARY_REPORT.md#88-为什么-cold-start-grpo-没学会协议而-warm-start-grpo-能继续增益)。
+Pure 显著提高了答案命中和 shaped reward，却没有形成任何稳定的可解析工具动作；SFT→GRPO 分支从第一批轨迹起就在可执行行为分布内，GRPO 因而能进一步优化算式选择、evidence 和最终答案。完整机制解释见 [项目完整实验报告](PROJECT_SUMMARY_REPORT.md#88-为什么-base-init-grpo-没学会协议而-agent-sft-init-grpo-能继续增益)。
 
 ## 12. Official test 与终态审计
 
@@ -276,7 +276,7 @@ Pure 显著提高了答案命中和 shaped reward，却没有形成任何稳定�
 | SFT-only | 37.604% | 46.475% | 97.953% | 99.507% | 38.893% | 70.46 |
 | SFT→GRPO | **67.475%** | **69.598%** | **98.863%** | **99.621%** | **67.930%** | 88.56 |
 
-SFT→GRPO 相对 SFT-only 的 strict 差值为 `+29.871 pp`，paired-bootstrap 95% CI `[+26.990, +32.752] pp`，exact McNemar `p=5.40e-80`；仅 warm-RL 成功 444 题，仅 SFT-only 成功 50 题，共同成功 446 题。Pure 相对 Base 的 strict 差值为 0，但 answer accuracy 高 32.676 pp，说明它确实学到了直接求答案的代理能力，却没有任何可执行 Agent 成功。Pure 的 formal test 与 validation、训练窗口结论一致，因此这里的 0% 是冻结测试结果，不是由训练指标代替。
+SFT→GRPO 相对 SFT-only 的 strict 差值为 `+29.871 pp`，paired-bootstrap 95% CI `[+26.990, +32.752] pp`，exact McNemar `p=5.40e-80`；仅后续 GRPO 成功 444 题，仅 SFT-only 成功 50 题，共同成功 446 题。Pure 相对 Base 的 strict 差值为 0，但 answer accuracy 高 32.676 pp，说明它确实学到了直接求答案的代理能力，却没有任何可执行 Agent 成功。Pure 的 formal test 与 validation、训练窗口结论一致，因此这里的 0% 是冻结测试结果，不是由训练指标代替。
 
 Pure 中断和恢复的证据边界见 [Stage 2 Track 1 Pure GRPO 中断与恢复记录](STAGE2_TRACK1_TERMINATION_REPORT.md)。
 
@@ -287,8 +287,8 @@ Pure 中断和恢复的证据边界见 [Stage 2 Track 1 Pure GRPO 中断与恢�
 | `dataset/manifests/gsm8k_agent.json` | 数据行数、边界与 SHA-256 |
 | `configs/qwen3_4b/lora_sft.yaml` | 第一阶段 Agent-SFT |
 | `configs/qwen3_4b/lora_sft_lm_head.yaml` | `lm_head` / 控制 token 修复 |
-| `configs/qwen3_4b/pure_grpo.yaml` | cold-start GRPO |
-| `configs/qwen3_4b/sft_grpo.yaml` | warm-start GRPO |
+| `configs/qwen3_4b/pure_grpo.yaml` | Base-init GRPO（无 Agent-SFT） |
+| `configs/qwen3_4b/sft_grpo.yaml` | Agent-SFT-init GRPO |
 | `configs/qwen3_4b/eval_matrix.yaml` | 四臂统一评测协议 |
 | `scripts/run_qwen_stage2.sh` | 原始训练与评测入口 |
 | `scripts/resume_and_finalize_qwen_track1.sh` | 恢复、补测、合并与审计控制器 |

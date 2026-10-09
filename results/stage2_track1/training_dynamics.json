@@ -1,6 +1,6 @@
 {
   "status": "COMPLETE",
-  "scope": "Stage 2 Track 1 cold-start versus Agent-SFT warm-start GRPO under matched candidate-group and trajectory budgets.",
+  "scope": "Stage 2 Track 1 Base-init GRPO versus Agent-SFT-init GRPO under matched candidate-group and trajectory budgets; Agent-SFT is the RL system's cold-start training stage.",
   "common": {
     "seed": 42,
     "reward_mode": "shaped",
