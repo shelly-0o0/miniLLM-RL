@@ -1,0 +1,77 @@
+{
+  "status": "COMPLETE",
+  "scope": "Stage 2 Track 1 Base-init GRPO versus Agent-SFT-init GRPO under matched candidate-group and trajectory budgets; Agent-SFT is the RL system's cold-start training stage.",
+  "common": {
+    "seed": 42,
+    "reward_mode": "shaped",
+    "candidate_groups": 6726,
+    "group_size": 8,
+    "candidate_trajectories": 53808
+  },
+  "pure_grpo": {
+    "initial_adapter": null,
+    "optimizer_updates": 6712,
+    "kl_rejections": 14,
+    "accepted_group_action_tokens": 20617925,
+    "accepted_group_mean_kl_k3": 0.04589995931776344,
+    "accepted_group_mean_rollout_logprob_mae": 0.02121247374979919,
+    "groups_with_any_strict_success": 0,
+    "groups_with_any_tool_call": 2,
+    "groups_with_any_format_valid": 1,
+    "first_200": {
+      "reward": -2.354097490310669,
+      "answer_accuracy": 0.05375,
+      "task_accuracy": 0.0,
+      "format_valid_rate": 0.0,
+      "tool_execution_success_rate": 0.0,
+      "tool_evidence_coverage_rate": 0.0,
+      "protocol_progress": 0.7117343770340085,
+      "action_tokens_per_group": 3070.135,
+      "kl_k3": 0.03787722505140484
+    },
+    "last_200": {
+      "reward": 0.2621345902234316,
+      "answer_accuracy": 0.435,
+      "task_accuracy": 0.0,
+      "format_valid_rate": 0.0,
+      "tool_execution_success_rate": 0.0,
+      "tool_evidence_coverage_rate": 0.0,
+      "protocol_progress": 1.4557812547683715,
+      "action_tokens_per_group": 3072.0,
+      "kl_k3": 0.05546539670147468
+    }
+  },
+  "sft_grpo": {
+    "initial_adapter": "out/stage2/qwen3_4b/sft_lm_head_w8_s42_adapter",
+    "optimizer_updates": 6726,
+    "kl_rejections": 0,
+    "action_tokens": 4680622,
+    "mean_kl_k3": 0.013534280317531702,
+    "mean_rollout_logprob_mae": 0.0019616085206986926,
+    "groups_with_any_strict_success": 6131,
+    "groups_with_any_tool_call": 6726,
+    "groups_with_any_format_valid": 6726,
+    "first_200": {
+      "reward": 3.7719039344787597,
+      "answer_accuracy": 0.55625,
+      "task_accuracy": 0.51,
+      "format_valid_rate": 0.984375,
+      "tool_execution_success_rate": 0.9932291668653488,
+      "tool_evidence_coverage_rate": 0.521875,
+      "protocol_progress": 1.7703125,
+      "action_tokens_per_group": 655.06,
+      "kl_k3": 0.001993461215735788
+    },
+    "last_200": {
+      "reward": 4.94046875,
+      "answer_accuracy": 0.78125,
+      "task_accuracy": 0.77,
+      "format_valid_rate": 0.991875,
+      "tool_execution_success_rate": 0.999375,
+      "tool_evidence_coverage_rate": 0.77875,
+      "protocol_progress": 1.9003125,
+      "action_tokens_per_group": 665.895,
+      "kl_k3": 0.015562866373399828
+    }
+  }
+}

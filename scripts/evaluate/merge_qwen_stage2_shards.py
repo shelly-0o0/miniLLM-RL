@@ -25,6 +25,15 @@ def parse_args():
         "--config", default=str(ROOT / "configs/qwen3_4b/eval_matrix.yaml")
     )
     parser.add_argument("--split", choices=["validation", "test"], default="test")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help=(
+            "Match an evaluate_qwen_stage2.py --limit override used by every "
+            "shard. Use 0 for the full split."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -95,7 +104,7 @@ def main():
     data_path = ROOT / evaluation[f"{args.split}_path"]
     data_sha256 = sha256_file(data_path)
     row_count = sum(1 for line in data_path.open(encoding="utf-8") if line.strip())
-    limit = int(evaluation.get("limit", 0))
+    limit = int(evaluation.get("limit", 0)) if args.limit is None else args.limit
     prompt_count = row_count if not limit else min(row_count, limit)
     seeds = [int(seed) for seed in evaluation.get("decode_seeds", [42])]
     expected_trajectories = prompt_count * len(seeds)

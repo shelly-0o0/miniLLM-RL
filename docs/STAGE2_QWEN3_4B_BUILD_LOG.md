@@ -26,7 +26,7 @@ Stage 2 不是把一个普通 GSM8K 单轮答案脚本换成更大的模型。�
 | 组别 | 初始化 | 是否 SFT | 是否 GRPO | 研究含义 |
 |---|---|---:|---:|---|
 | Base | Qwen3-4B-Base | 否 | 否 | 原始模型能力 |
-| Pure GRPO | Base + 新建零初始化 LoRA | 否 | 是 | RL 能否从无 Agent 冷启动直接学习 |
+| Pure GRPO | Base + 新建零初始化 LoRA | 否 | 是 | Base-init RL 能否在无 Agent-SFT 初始化时直接学习 |
 | SFT only | Base + Agent SFT LoRA | 是 | 否 | 行为克隆本身带来的收益 |
 | SFT → GRPO | 同一个 SFT adapter | 是 | 是 | 有可优化行为先验后，RL 的增量收益 |
 
@@ -192,7 +192,7 @@ r = -1  其他情况
 - 把 ground truth 当作工具返回文本伪造；
 - 撞满 `max_new_tokens` 后留下半截工具调用。
 
-SFT 用 oracle action 提供行为冷启动；RL reward 不读取 oracle action，只读取题目 ground truth 和真实执行轨迹。
+Agent-SFT 用 oracle action 提供 RL 系统的冷启动训练；RL reward 不读取 oracle action，只读取题目 ground truth 和真实执行轨迹。
 
 正式启动前的 Base 16×8 probe 发现：严格奖励 128/128 都为 -1；Base
 已经输出 calculator JSON 和部分正确算式，但没有协议标签。若仍直接用严格
@@ -210,7 +210,7 @@ schema → tool name → arguments → safe execution → result evidence
 
 它有固定上界，重复候选只取最大值；裸 JSON 不会被送入环境，也不会增加
 `tool_call_valid`、`tool_execution_success` 或 strict task success。这样可为 Pure
-冷启动提供相对优势，同时不能把“看起来像工具调用”伪装成 Agent 成功。保存的
+Agent-SFT 冷启动训练提供相对优势，同时不能把“看起来像工具调用”伪装成 Agent 成功。保存的
 Base 轨迹离线重评分后 strict success 仍为 0，而 shaped 非零方差组率从 0%
 变为 100%，验证了这条边界。
 
@@ -223,7 +223,7 @@ Base 轨迹离线重评分后 strict success 仍为 0，而 shaped 非零方差�
 A_i = (r_i - mean(r_group)) / (std(r_group) + 1e-4)
 ```
 
-若一组八条全错或全对，标准差为 0，优势自然为 0。这正是 Pure GRPO 冷启动可能很慢的原因，也是本矩阵要比较 SFT warm start 的核心。
+若一组八条全错或全对，标准差为 0，优势自然为 0。这正是 Base-init Pure GRPO 可能很慢的原因，也是本矩阵要比较 Agent-SFT 冷启动训练作用的核心。
 
 行为策略比率：
 
@@ -527,7 +527,7 @@ tool calls:                0
 adapter saved:             yes
 ```
 
-smoke 的 SFT 只有一个 step，不足以教会稳定工具行为，所以两个 GRPO smoke 都无工具调用、严格奖励全为 -1。这是预期的工程测试结果，不能用来得出 warm start 无效的算法结论。
+smoke 的 SFT 只有一个 step，不足以教会稳定工具行为，所以两个 GRPO smoke 都无工具调用、严格奖励全为 -1。这是预期的工程测试结果，不能用来得出 Agent-SFT 冷启动训练无效的算法结论。
 
 产物级 safetensors 验收：
 
@@ -635,7 +635,7 @@ bash scripts/run_qwen_stage2.sh pure_grpo
 bash scripts/run_qwen_stage2.sh sft_grpo
 ```
 
-原理：两者各遍历全部 6726 个训练 prompt，各采样 8 条轨迹。Pure GRPO 测无 warm start 的探索难度；SFT → GRPO 测行为先验是否降低零方差组并提高样本效率。
+原理：两者各遍历全部 6726 个训练 prompt，各采样 8 条轨迹。Pure GRPO 测 Base-init、无 Agent-SFT 初始化时的探索难度；SFT→GRPO 测 Agent-SFT 行为先验是否降低零方差组并提高样本效率。
 
 断点恢复：
 
@@ -669,7 +669,7 @@ bash scripts/run_qwen_stage2.sh audit_results
 SFT gain        = Accuracy(SFT only) - Accuracy(Base)
 Pure RL gain    = Accuracy(Pure GRPO) - Accuracy(Base)
 Post-SFT RL gain= Accuracy(SFT→GRPO) - Accuracy(SFT only)
-Warm-start gap  = Accuracy(SFT→GRPO) - Accuracy(Pure GRPO)
+SFT-init gap  = Accuracy(SFT→GRPO) - Accuracy(Pure GRPO)
 ```
 
 同时报告训练代价：rollout 数、动作 token、optimizer update、wall time 和 GPU 型号。若 Pure GRPO 的 `zero_variance_group` 长期接近 1，应解释为组内奖励没有形成相对信号，而不是简单写成“GRPO 公式无效”。
@@ -684,7 +684,7 @@ validation/test 必须同时报告 task accuracy 与过程指标。仅有 format
 
 - Hugging Face Qwen 基座；
 - LoRA/QLoRA 降低资源门槛；
-- 先短 SFT warm start、再做 GRPO 的对照；
+- 先做短 Agent-SFT 冷启动训练、再做 GRPO 的对照；
 - 配置化超参数、JSONL 日志、smoke 后再全量训练。
 
 没有直接照搬：
@@ -705,6 +705,6 @@ validation/test 必须同时报告 task accuracy 与过程指标。仅有 format
 3. 四组 validation/test 必须等两条 formal GRPO adapter 完成后执行，结果尚未产生。
 4. 本轮先完成 seed 42 的四臂闭环；多训练 seed 属于扩展统计，不把尚未执行的重复实验伪装成现有结果。
 
-正式 SFT 的 128×8 on-policy validation probe 已得到 trajectory task accuracy 34.6680%、pass@1 34.375%、pass@8 72.65625%、有效组率 69.53125%，工具执行成功率 99.6094%、evidence coverage 36.3281%，平均响应 71.80 token 且 unfinished 为 0。它证明 warm start 的行为可优化性，但最终结论仍以两条 GRPO 完成后的同一四臂 evaluator 为准。
+正式 SFT 的 128×8 on-policy validation probe 已得到 trajectory task accuracy 34.6680%、pass@1 34.375%、pass@8 72.65625%、有效组率 69.53125%，工具执行成功率 99.6094%、evidence coverage 36.3281%，平均响应 71.80 token 且 unfinished 为 0。它证明 Agent-SFT 冷启动训练产物的行为可优化性，但最终结论仍以两条 GRPO 完成后的同一四臂 evaluator 为准。
 
 代码 readiness、真实 tokenizer、多轮协议和 GPU smoke 通过，不等价于正式训练结果已经产生。后续每完成一项，应把命令、机器、Git commit、配置哈希、开始/结束时间、退出状态和结果路径追加到 `docs/WORKLOG.md`，最终结果再写入实验报告。

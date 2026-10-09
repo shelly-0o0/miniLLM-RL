@@ -289,7 +289,7 @@ DDP 每个 rank 都复制完整模型，只做数据并行，不解决单卡放�
 - `06_FINAL_PROJECT_REPORT.md`：旧主线总结。
 - `07_RESUME_ALIGNED_TECHNICAL_REPORT.md`：面向简历的技术边界说明。
 - `08_EXPERIMENTAL_NARRATIVE.md`：实验叙事。
-- `09_RL_OPTIMIZATION_FOLLOWUP.md`：精度/log-prob/cold-start 修正后的后续实验。
+- `09_RL_OPTIMIZATION_FOLLOWUP.md`：精度、log-prob 与 Agent-SFT 冷启动训练修正后的后续实验。
 - `SOURCES.md`：上游、论文、官方实现与本项目原创边界的权威清单。
 
 ### Notebook、图片和模型资产

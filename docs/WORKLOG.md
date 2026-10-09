@@ -116,7 +116,7 @@
 12. 正式 A probe 的 1,024 条轨迹全部无合法工具调用；定位为 Qwen 首轮 inference prompt 预填空 thinking block，而 SFT 首轮 tool-call target 没有该 block。
 13. 停止并归档旧 probe；实现逐轮 prompt 模式解析和严格 SFT-prefix audit。A/B 各 128 条均验证首轮/工具后模式为 `[true, false]`、mismatch 0，全仓测试增至 58/58。
 14. 对齐后 A 池 16×4 短 probe 仍为 0 合法工具调用且平均生成长度等于 384 上限，证明模板漂移不是唯一原因；输出已出现 calculator JSON 内容但缺少工具边界。增加结构 token 加权 SFT：`<tool_call>`、`</tool_call>`、`<|im_end|>` 权重 8，其余 assistant token 权重 1，原 adapter 保留为初始化点。2-step 远程 smoke 中 504/504 个 LoRA tensor 更新且无非有限值。
-15. 批判性核对 `jjyaoao/qwen-grpo-gsm8k`：采用 warm start、分层奖励与可观测性思想，不复制其单轮 XML 奖励作为 agent 成功。修复“零工具标签也被算格式有效”的诊断缺陷；probe 现同时报告 strict 与 shaped reward 方差，以实测决定是否进行 shaped-GRPO pilot。全仓回归为 60/60 通过。
+15. 批判性核对 `jjyaoao/qwen-grpo-gsm8k`：采用 SFT 初始化、分层奖励与可观测性思想，不复制其单轮 XML 奖励作为 agent 成功。修复“零工具标签也被算格式有效”的诊断缺陷；probe 现同时报告 strict 与 shaped reward 方差，以实测决定是否进行 shaped-GRPO pilot。全仓回归为 60/60 通过。
 16. structure-w8 隐层-only 增量 SFT 完成，但固定 128 条审计显示结构 NLL 仅从 7.7965 降到 7.7566、Top-1 仍为 0，故停止该路线且不运行 rollout。修复 Transformers 4.57 自定义 loss 的 gradient-accumulation 接口，真实加权 loss 约 3.7，旧日志约 59 是 16 倍缩放。
 17. 证实 PEFT `all-linear` adapter 只有七类 projection、明确排除 `lm_head`。新增从原 504 tensor 无损扩展到 `lm_head` rank-16 LoRA 的路径，并禁用完整 tied embedding 自动保存。10-step pilot 使结构 NLL 下降 0.1299、`<|im_end|>` Top-1 升至 10.94%，普通 token 无退化，已据此启动完整低秩修复 epoch。
 18. 将完整修复验收拆为 adapter 产物、128 条 teacher-forced Top-1/Top-20、2×2 自由生成 smoke 和 16×4 决策 probe 四级门槛。Qwen GRPO 增加可审计的 strict/shaped 模式开关，但正式 A/B 配置继续锁定 strict；shaped 只能在 probe 实测存在组内方差后作为隔离的课程 pilot 使用。
@@ -131,7 +131,7 @@
 - smoke 的小样本 reward/accuracy 只验证工程链路，不能作为模型效果。
 - 当前没有 Track 2 准确率结果，不作效果结论。
 
-## 2026-10-05：Stage 2 Track 1 正式执行与冷启动修复
+## 2026-10-05：Stage 2 Track 1 正式执行与 Agent-SFT 冷启动训练修复
 
 ### 先质疑后验证
 
@@ -168,7 +168,7 @@
 4. 新增 token 级 KL 故障诊断：在门禁抛错前保存最大异常 action token、policy/old/reference logprob、k3、轨迹文本、工具 turn 和 stop trace。失败组仍不执行 optimizer step，也不推进正式 checkpoint。
 5. 修复恢复过程的 provenance：首次 `used_config.yaml` 与 `runtime_overrides.json` 变为不可覆盖；每次启动/恢复另存 segment 配置并追加 `run_segments.jsonl`。本次恢复前已记录原两文件 SHA-256。
 6. 四组评测改为 `require_all_runs: true`；正式输出记录数据、配置和每个 adapter 的 SHA-256，且拒绝覆盖已有 summary。新增终态审计脚本，只有完整 SFT、两条全量 GRPO、四组 validation（以及最终 test）全部存在且 finite/预算/哈希一致时才 PASS。
-7. 用同一组 16 个 validation prompt、每题 4 条轨迹对比低权重候选：w2-100 的合法/成功工具执行率为 17.19%，w2-200 为 28.13%；w2-200 的 evidence coverage 为 4.69%，但二者严格任务成功均为 0。它们证明课程 reward 可产生方差，却不足以作为正式 warm start。
+7. 用同一组 16 个 validation prompt、每题 4 条轨迹对比低权重候选：w2-100 的合法/成功工具执行率为 17.19%，w2-200 为 28.13%；w2-200 的 evidence coverage 为 4.69%，但二者严格任务成功均为 0。它们证明课程 reward 可产生方差，却不足以作为正式 Agent-SFT 冷启动训练产物。
 8. 只读复核已有 Track 2 正式 w8 证据，而不是凭印象决定：三个协议边界 token 的 teacher-forced Top-1 分别为 99.78%、97.09%、96.88%，普通位置结构 token Top-1 误触发约 2.46%；16×4 自由探针的合法/成功工具执行率为 59.38%，严格任务成功率 3.13%。该结果否定了“结构权重 8 必然过度生成”的假设。
 9. 因此 Track 1 正式 SFT 定义为两段式：原 adapter 已用全部 6,637 条 oracle 完整训练一轮；随后扩展 `lm_head` LoRA，以结构权重 8 再完整遍历同一训练集一轮。100/200-step w2 只保留为校准产物，不进入四组最终矩阵。
 10. Pure 第 74 组故障被确定性复现。异常只来自重复退化轨迹中的一个 `"iguous"` token：current 与 old logprob 都是 `-18.8000`，reference 是 `-3.3928`，说明 resume/重算完全一致；单 token k3 为 `4,911,822`，轨迹均值为 `12,791.20`。
@@ -179,10 +179,10 @@
 15. 旧逐轨迹门禁运行连同日志、metrics 和诊断保留式归档为 `pure_grpo_s42_invalid_per_trajectory_kl_gate_20261005`。修复后的正式 Pure 从 fresh LoRA 再次启动；原故障第 3 组的组级 KL 为 `4.510293`，未裁剪梯度范数为 `50.3224`，随后按 `max_grad_norm=1` 裁剪并完成更新；第 4 组 KL 回落至 `0.0007819`，到第 9 组仍连续运行。
 16. Base on-policy 预探针完成 16 prompt × G=8：严格 pass@1/pass@8 均为 0，严格有效组率 0，平均响应 384 token；但 shaped reward 的 16/16 组都有方差，平均组内标准差 `0.70250`，说明 Pure 分支只有课程信号、没有伪造的严格成功。
 17. 正式 lm-head structure-w8 修复完整训练 415 step、6,637 条，耗时 3,199.65 秒，`train_loss=0.468097`。128 条 teacher-forced 审计中结构 token Top-1 达 `99.6396%`，`<tool_call>`/`</tool_call>` 均为 100%，`<|im_end|>` 为 98.4375%；普通位置结构 token Top-1 误触发仅 `0.0847%`。该 adapter 正式进入 SFT-only 与 SFT→GRPO 两臂。
-18. SFT→GRPO 的 4-group 隔离 pilot 平均 strict task accuracy `71.875%`，工具调用/执行/required-tool coverage 均为 100%，证据覆盖 75%；最大 KL `0.0002734`、最大 rollout logprob MAE `0.0052268`，全部有限、无安全拒绝。因此从同一正式 SFT adapter 启动全部 6,726 组的 warm-start 正式训练。
+18. SFT→GRPO 的 4-group 隔离 pilot 平均 strict task accuracy `71.875%`，工具调用/执行/required-tool coverage 均为 100%，证据覆盖 75%；最大 KL `0.0002734`、最大 rollout logprob MAE `0.0052268`，全部有限、无安全拒绝。因此从同一正式 Agent-SFT adapter 启动全部 6,726 组的 SFT-init GRPO 正式训练。
 19. Pure full-softmax 运行到第 190 组时出现真正的 reference drift：整组 action-token KL 为 `41.8680`，单 token current/old 为 `-20.3327/-20.3327`、reference 为 `-8.5680`。这不是 ledger 错位；门禁正确地在 backward 前终止。该运行完整归档为 `pure_grpo_s42_invalid_group_kl_drift_g190_20261005`。
 20. k3 是 sampled Monte-Carlo KL，稀有 token 可产生重尾离群。正式安全策略改为：阈值仍为 10；超过阈值的有限组不反向传播，单独保存 token 诊断并 checkpoint 已消费位置/RNG；最多 64 个、最多连续 3 个，超限仍硬停；非有限值始终立即硬停。`gradient_accumulation_steps` 必须为 1，避免拒绝一组时丢弃别组已累计梯度。旧失败产物不覆盖，新 Pure 从 fresh LoRA 重启。
-21. SFT-only 的 128×8 on-policy validation probe 完成：trajectory task accuracy `34.6680%`、pass@1 `34.375%`、pass@8 `72.65625%`、有效组率 `69.53125%`；工具执行成功率 `99.6094%`、evidence coverage `36.3281%`、平均响应 71.80 token、unfinished 0。相对 Base 的 strict 0% 与 384-token 撞顶，warm start 已显著提高可排序轨迹密度；该 probe 仍不替代最终统一四臂 evaluation。
+21. SFT-only 的 128×8 on-policy validation probe 完成：trajectory task accuracy `34.6680%`、pass@1 `34.375%`、pass@8 `72.65625%`、有效组率 `69.53125%`；工具执行成功率 `99.6094%`、evidence coverage `36.3281%`、平均响应 71.80 token、unfinished 0。相对 Base 的 strict 0% 与 384-token 撞顶，Agent-SFT 冷启动训练已显著提高可排序轨迹密度；该 probe 仍不替代最终统一四臂 evaluation。
 22. 用已知会在第 190 组触发 KL 重尾的 checkpoint 做确定性安全回放：第 190 组 `group_kl_k3=41.8680496` 被拒绝，optimizer update 保持 189；第 191 组 `group_kl_k3=0.00162286` 正常执行并把 update 推进到 190。最终为 191 candidate、190 update、1 rejection，诊断与 adapter 均保存、无 `safety_failure.json`。因此有界拒绝不是只通过 mock 测试，而是在真实 4B 权重和真实 rollout 上完成了端到端验收。
 23. Track 2 GRPO(A/B) 正式训练全部完成：各 3,686 组、29,488 条 rollout、3,686 次更新，均无安全拒绝和非有限指标，终态 adapter 已保存。为满足截止时间，新增可审计单臂 shard 与原子合并器；1 题 Base 真实路径预检通过后，五臂官方 1,319 题 test 已分别在 GPU 0/1/2/4/6 并行启动。合并前强制验证 canonical 配置、数据、adapter、轨迹覆盖和有限性，最终结果仍必须通过 Track 2 fail-closed 审计。
 24. Track 2 五臂 official test 全部完成、原子合并且终态审计 PASS。严格成功率依次为 Base `0%`、Agent-SFT(A) `0.910%`、GRPO(A) `2.578%`、GRPO(B) `2.654%`、Additional-SFT(B) `42.532%`。20,000 次同题 paired bootstrap 显示 GRPO(A/B) 相对 Agent-SFT(A) 分别提升 `+1.668/+1.744 pp`，但 B−A 仅 `+0.076 pp`、区间跨 0；Additional-SFT(B) 相对 GRPO(B) 高 `39.879 pp`。新增配对分析脚本和 `docs/STAGE2_TRACK2_FINAL_REPORT.md`，明确单训练 seed、非等算力监督和不可外推到普遍 SFT/RL 排名的限制。
@@ -211,3 +211,45 @@
 7. 新增 `scripts/analyze_gsm8k_stage1.py`：硬审计预算、轨迹计数、checkpoint finite/变化、两层聚合、paired bootstrap、失败归因和 SHA-256 evidence bundle。
 8. 新增 `scripts/run_gsm8k_stage1_final_test.sh` 固化不可覆盖的最终测试参数；完整结论、命令、异常和限制写入 `docs/STAGE1_GSM8K_FINAL_REPORT.md`。
 9. 使用可写 Hugging Face cache 重新运行全仓回归，67/67 通过。Stage 1 的四算法正式矩阵、统计分析与最终测试至此完成；PPO 未进入本轮锁定矩阵，不作 PPO 效果结论。
+
+## 2026-10-07：结果多维分析与 Track 1 进程复核
+
+1. 远程只读核对 Track 2 最终审计仍为 `PASS`：GRPO(A/B) 各完成 3,686 groups、29,488 rollouts、3,686 updates，0 次 KL 拒绝；五臂 official test 每臂 1,319 题。
+2. 聚合 Track 2 全程 metrics，而不是只看最后一行：A/B 全程零方差组率为 84.75%/87.76%，末 200 组为 82.0%/84.5%；strict trajectory accuracy 从首 200 组的 0.8125%/0.9375% 上升到末 200 组的 2.6875%/2.2500%。
+3. 补充行为漏斗：Agent-SFT(A)、GRPO(A)、GRPO(B)、Additional-SFT(B) 的 `Strict/Answer` 分别为 8.0%、17.3%、15.7%、88.1%，`Strict/Evidence` 分别为 17.9%、33.0%、31.0%、96.7%。
+4. 补充计算成本：Agent-SFT(A)/Additional-SFT(B) 各约 0.461 h；GRPO(A/B) 分别约 15.208/15.885 h。在当前实现中，在线 RL 约慢 33–35 倍，但这不是严格 FLOPs 配平实验。
+5. Stage 1 补充相对效果：DAPO test strict 相对 Agent-SFT 提升 50.96%，evidence coverage 提升 47.94%，平均输出缩短 9.09%；三个训练 seed 的 strict 变异系数约 9.18%。
+6. 复核 Track 1：SFT→GRPO 已完整结束 6,726 groups；Pure GRPO 在 2026-10-07 17:58（Asia/Shanghai）运行到 4,615/6,726 groups、4,605 updates，仍有 tmux 和单 GPU Python 进程。
+7. Pure GRPO 前 200→末 200 组的 shaped reward 从 -2.342 升到 +0.191、answer accuracy 从 5.38% 升到 41.94%、protocol progress 从 0.708 升到 1.441，但 strict accuracy 仍为 0，末 200 组工具调用仍为 0；课程信号在改善，Agent 行为尚未形成。
+8. Pure 全程只有 2 个 group 出现工具调用，10/4,615 个候选组因组级 KL 重尾超过阈值被有界拒绝；均为孤立事件，下一组继续更新，无连续拒绝或非有限值。按当前平均 36.28 s/group 估计仍需约 21.3 h，未包含评测与审计。
+9. 将上述效果量、行为漏斗、训练动态、效率、KL、统计边界和跨阶段解释写入 `PROJECT_SUMMARY_REPORT.md` 及两个阶段正式报告。
+10. 报告修改后重新运行全仓回归，68/68 通过；`git diff --check` 通过。
+
+## 2026-10-08：终止 Track 1 Pure GRPO 并固化负结果
+
+1. 在 `pure_grpo` 运行到 5,363/6,726 candidate groups 时发送中断，确认 tmux、训练 PID 和 GPU 3 显存占用全部退出；没有影响 GPU 0 上独立运行的 SVAMP 实验。
+2. 终止时共生成 42,904 条 rollout、完成 5,352 次更新，wall time 约 54.05 h；滚动 checkpoint、metrics、日志和 11 份 KL safety-rejection 诊断均保留，未导出终态 adapter。
+3. Pure 的答案准确率从前 200 组 5.375% 升到末 200 组 43.3125%，shaped reward 从 -2.354 升到 +0.250；但末 200 组 strict、format、工具调用、工具执行和 evidence coverage 全部为 0，且每组耗尽 3,072 action tokens。
+4. 11 个 KL 重尾组均在 backward 前被拒绝，最长连续拒绝为 1，最大被拒绝组 KL 为 157,931.45；停止原因是行为不可达和继续计算的低信息收益，而不是进程或数值崩溃。
+5. 新增 `docs/STAGE2_TRACK1_TERMINATION_REPORT.md` 和机器可读 `results/stage2_track1/pure_grpo_termination_summary.json`，明确该结果支持 Base-init GRPO 的失败机制，但不能冒充完成的四臂 Track 1 或 Pure 终态 test。
+
+## 2026-10-08：恢复 Track 1 并补齐四臂评测
+
+1. 按用户要求恢复 Pure 并完成后测试；复核滚动 state 位于 candidate group 5,350、optimizer update 5,339、KL rejection 11。
+2. 将中断时 metrics/log 原样归档并核对既有 SHA-256；活动 metrics 回退到第 5,350 组再 `--resume`，防止 5,351–5,363 形成重复记录。恢复后第 5,351 组正常更新，GPU 3 训练进程健康。
+3. 解释并修正 SFT-only 未测试问题：此前只抢先完成了 SFT→GRPO test shard，完整矩阵被 Pure 终态 adapter 卡住，并非实验设计排除 SFT-only。
+4. 在 Pure 继续训练的同时，GPU 1/2 启动 Base 与 SFT-only 全量 official test，GPU 4/5/6 启动 Base、SFT-only、SFT→GRPO validation；Pure 完成后自动运行自己的两个 shard。
+5. 分片合并器新增 `--limit` 覆盖，使所有使用 `evaluate_qwen_stage2.py --limit 0` 生成的 full-test shard能在不修改 canonical config 哈希的情况下原子合并；完成后依次执行 validation audit 与 require-test audit。
+6. 新增 `docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md`，把早期 “Stack 1” 统一为规范名称 Track 1，并详细固化四臂可识别效应、数据边界、两阶段 Agent-SFT、共同 GRPO 目标、shaped/strict 分工、on-policy 与 KL 门禁、恢复规则、validation/test 协议及 fail-closed 审计条件；总报告同步改为恢复执行状态。
+
+## 2026-10-08：Track 1 终态训练、SVAMP 与完整报告
+
+1. Pure GRPO 从 group 5,350 持久 checkpoint 恢复后完成全部 6,726 groups / 53,808 trajectories；最终 6,712 updates、14 次 isolated KL safety rejection，terminal adapter 成功导出。
+2. Pure 前 200→末 200 组的 answer accuracy 从 5.375% 升至 43.500%、shaped reward 从 -2.354 升至 +0.262，但 strict、format、tool execution 和 evidence 始终为 0；全程正常更新组只有 2 组出现任何 tool-call。
+3. 统一 128 题 validation：Base/Pure/SFT-only/SFT→GRPO strict 为 0%/0%/30.469%/65.625%；Pure answer 达 42.188% 但 tool execution 为 0，确认代理答案能力与 Agent 协议能力分离。
+4. SFT-only 与 SFT→GRPO 的 1,319 题 official-test strict 为 37.604% 与 67.475%，同题差值 +29.871 pp，paired-bootstrap 95% CI `[+26.990, +32.828] pp`，exact McNemar `p=5.40e-80`。
+5. SVAMP SFT-init GRPO 完成 816 groups / 6,528 trajectories、0 KL rejection，终态审计 PASS；184 题 holdout strict 从 67.935% 提升至 76.087%，配对差值 +8.152 pp、95% CI `[+1.630, +14.674] pp`。
+6. 总报告新增 Track 1 训练动态、validation、Base-init 与 Agent-SFT-init GRPO 的六点机制解释、SVAMP 跨分布结果与配对统计；新增 Track 1 配对统计脚本和可发布 SVAMP 结果包。
+7. Pure 1,319 题 official test 于 2026-10-09 02:09 完成：strict 0%、answer 36.922%、format/tool execution/evidence 0%、平均响应 384 token；四臂原子 merge 和 fail-closed audit 于 02:10 完成，状态 `PASS`。
+8. 四臂 official-test strict 为 Base/Pure/SFT-only/SFT→GRPO = 0%/0%/37.604%/67.475%；Agent-SFT 后的 GRPO 相对 SFT-only 增量 +29.871 pp，20,000 次 paired-bootstrap 95% CI `[+26.990, +32.752] pp`，exact McNemar `p=5.40e-80`。
+9. 生成并归档 Track 1 official-test 指标、逐题配对统计、最终审计和完整实验报告，更新仓库结果校验清单。

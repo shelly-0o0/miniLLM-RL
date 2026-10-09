@@ -1,0 +1,43 @@
+{
+  "status": "COMPLETE",
+  "scope": "Intervals treat the 184 SVAMP holdout questions as the sampling unit. They do not quantify variation across training seeds; both arms use decode seed 42 and the GRPO arm uses training seed 42.",
+  "data_sha256": "d83fdc54a99fa6a1e7779372ee9d22cd8fec28b1b3689272d146e0204d3bbb47",
+  "num_paired_questions": 184,
+  "bootstrap_samples": 20000,
+  "arms": [
+    {
+      "label": "additional_sft_b_zero_shot",
+      "task_successes": 125,
+      "task_accuracy": 0.6793478260869565,
+      "answer_accuracy": 0.717391304347826,
+      "format_valid_rate": 0.9891304347826086,
+      "tool_execution_success_rate": 0.9945652173913043,
+      "tool_evidence_coverage_rate": 0.7010869565217391,
+      "avg_response_tokens": 39.91304347826087
+    },
+    {
+      "label": "svamp_grpo",
+      "task_successes": 140,
+      "task_accuracy": 0.7608695652173914,
+      "answer_accuracy": 0.7989130434782609,
+      "format_valid_rate": 0.9945652173913043,
+      "tool_execution_success_rate": 0.9945652173913043,
+      "tool_evidence_coverage_rate": 0.7663043478260869,
+      "avg_response_tokens": 38.69021739130435
+    }
+  ],
+  "paired": {
+    "treatment": "svamp_grpo",
+    "control": "additional_sft_b_zero_shot",
+    "task_accuracy_delta": 0.08152173913043478,
+    "paired_bootstrap_delta_95": [
+      0.016304347826086956,
+      0.14673913043478262
+    ],
+    "treatment_only_success": 26,
+    "control_only_success": 11,
+    "both_success": 114,
+    "both_failure": 33,
+    "mcnemar_exact_two_sided_p": 0.020073851919732988
+  }
+}

@@ -7,7 +7,7 @@
 
 ## 1. Track 2 要回答什么问题
 
-Track 1 比较 Base、Pure GRPO、SFT only 和 SFT → GRPO，重点是“Agent-SFT warm start 是否让稀疏奖励 RL 变得可优化”。Track 2 不重复这个问题，而是在所有 RL 分支共享同一个 Agent-SFT(A) 起点后，进一步区分训练题目的作用：
+Track 1 比较 Base、Pure GRPO、SFT only 和 SFT → GRPO，重点是“Agent-SFT 作为 RL 系统的冷启动训练，是否让稀疏奖励 RL 变得可优化”。Track 2 不重复这个问题，而是在所有 RL 分支共享同一个 Agent-SFT(A) 起点后，进一步区分训练题目的作用：
 
 1. GRPO 在 SFT 已见过的 A 题上继续训练，得到多少收益？
 2. GRPO 在 SFT 没见过的 B 题上训练，能否利用已有工具行为迁移到新题？
@@ -176,7 +176,7 @@ zero variance= 成功条数为 0 或 8
 - `pass@8 > pass@1`：正确行为已经可达，但单次输出不稳定，RL 有排序空间；
 - effective-group rate 高：组内奖励存在方差，GRPO 能获得相对优势；
 - A 好、B 差：SFT 更可能在记忆 A 的轨迹，而不是把工具行为迁移到新题；
-- A/B 都接近全错：应先改进 warm start、采样或奖励，不应直接烧完整 GRPO 预算；
+- A/B 都接近全错：应先改进 Agent-SFT 冷启动训练、采样或奖励，不应直接烧完整 GRPO 预算；
 - A/B 都接近全对：继续 GRPO 的边际信息也很少。
 
 Probe 输出 group、trajectory 和 aggregate 三层记录，便于从汇总指标追溯到原始生成。
@@ -372,7 +372,7 @@ GRPO 重点检查：
 - reward 永远 -1 且 zero-variance≈1：没有可排序轨迹，loss 接近 0 是数学结果；
 - rollout logprob MAE 超阈值：采样概率与重算概率不一致，训练应终止；
 - KL 突增、clip fraction 持续很高：更新过猛，应降低学习率或增加 KL 约束；
-- unfinished/长度上限高：模型没有学会收束，先排查模板、stop token 和 warm start；
+- unfinished/长度上限高：模型没有学会收束，先排查模板、stop token 和 Agent-SFT 冷启动训练；
 - tool-call valid 高但 evidence coverage 低：会写格式，但计算或证据链错误。
 
 GRPO 的 current-policy forward 保持训练模式以启用 gradient checkpointing，但所有 Dropout 子模块固定为 eval。否则 behavior log-probability 在无 dropout 条件下重算，而 current log-probability 带随机 dropout，会把随机失配错误解释为策略/KL 变化。optimizer step 前还按整组所有 action token 计算全局平均 `kl_k3 <= 10` 的硬门禁；这与 streaming loss 中 KL 项的归一化口径一致。超过阈值会在 backward 前保存最坏轨迹/token 诊断并终止，不把异常更新写入 checkpoint。
@@ -668,7 +668,7 @@ pre_grpo_probe
 - 真正的根因是 Qwen3-4B-Base 的 chat control-token 先验弱、PEFT `all-linear` 排除 `lm_head`、旧 inference prefix 与 SFT 不一致，以及 shaped reward 对重复标签排序失真；
 - 权重 8 的完整修复又引入控制 token 过生成，说明“把格式奖励/损失加大”本身不是单调更优，必须同时检查目标命中率与非目标误报率。
 
-参考仓库可迁移的是 warm start、分层奖励、padding 区分和细粒度监控；不能直接复制其 XML formatter，因为本项目的成功还要求 schema 合法、真实执行、required-tool coverage、执行证据与最终答案共同成立。
+参考仓库可迁移的是 SFT 初始化、分层奖励、padding 区分和细粒度监控；不能直接复制其 XML formatter，因为本项目的成功还要求 schema 合法、真实执行、required-tool coverage、执行证据与最终答案共同成立。
 
 ## 24. 正式运行顺序
 
@@ -746,4 +746,4 @@ GRPO(A/B) 均完成全部 3,686 个候选组、29,488 条 rollout 和 3,686 次 
 
 官方 test 的严格任务成功率为：Base 0%、Agent-SFT(A) 0.910%、GRPO(A) 2.578%、GRPO(B) 2.654%、Additional-SFT(B) 42.532%。GRPO(A/B) 相对 Agent-SFT(A) 的同题配对增量为 +1.668/+1.744 个百分点，95% paired bootstrap 区间均不跨 0；GRPO(B) 相对 GRPO(A) 仅 +0.076 个百分点，区间 `[−1.061,+1.213]`，不能声称 A/B 有差异。Additional-SFT(B) 相对 GRPO(B) 高 39.879 个百分点。
 
-结果支持“strict-GRPO 在可靠 warm start 上有小幅有效改进”，但不支持“RL 比继续使用可靠 oracle 的 SFT 更强”。正式末 200 组 A/B 的零方差率仍为 82%/84.5%，说明稀疏奖励是效果上限的主要原因。完整结果、算法解释与限制见 `docs/STAGE2_TRACK2_FINAL_REPORT.md`。
+结果支持“strict-GRPO 在可靠 Agent-SFT 冷启动训练产物上有小幅有效改进”，但不支持“RL 比继续使用可靠 oracle 的 SFT 更强”。正式末 200 组 A/B 的零方差率仍为 82%/84.5%，说明稀疏奖励是效果上限的主要原因。完整结果、算法解释与限制见 `docs/STAGE2_TRACK2_FINAL_REPORT.md`。

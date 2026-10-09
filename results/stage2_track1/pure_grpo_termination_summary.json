@@ -1,0 +1,122 @@
+{
+  "status": "COMPLETED_AFTER_INTERRUPTION_AND_RESUME",
+  "run_name": "qwen3_4b_pure_grpo_s42",
+  "terminated_at": "2026-10-08T01:31:23+08:00",
+  "resumed_at": "2026-10-08T01:48:06+08:00",
+  "training_completed_at": "2026-10-08T15:37:33+08:00",
+  "official_test_and_audit_completed_at": "2026-10-09T02:10:00+08:00",
+  "termination_reason": "After 42,904 on-policy trajectories, the final 200 groups still had zero strict success, zero valid tool calls, and full 3,072-token action saturation. The run was later resumed at the user's request and completed its full preregistered budget.",
+  "resume": {
+    "checkpoint_candidate_group": 5350,
+    "checkpoint_optimizer_updates": 5339,
+    "checkpoint_kl_rejections": 11,
+    "archived_interruption_snapshot": true,
+    "active_metrics_rolled_back_to_checkpoint_boundary": true,
+    "final_result_pending": false
+  },
+  "protocol": {
+    "model": "Qwen/Qwen3-4B-Base",
+    "training_seed": 42,
+    "decode_seed": 42,
+    "initialization": "fresh zero-initialized LoRA",
+    "reward_mode": "shaped",
+    "group_size": 8,
+    "planned_candidate_groups": 6726,
+    "kl_gate_threshold": 10.0
+  },
+  "interruption_snapshot": {
+    "candidate_groups_consumed": 5363,
+    "progress_fraction": 0.7973535533749628,
+    "candidate_trajectories": 42904,
+    "optimizer_updates": 5352,
+    "safety_rejections": 11,
+    "wall_time_seconds": 194575.12651991844,
+    "terminal_adapter_exported": false
+  },
+  "final_counters": {
+    "candidate_groups_consumed": 6726,
+    "candidate_trajectories": 53808,
+    "optimizer_updates": 6712,
+    "safety_rejections": 14,
+    "metric_records": 6712,
+    "terminal_adapter_exported": true
+  },
+  "first_200_groups": {
+    "shaped_reward": -2.354097490310669,
+    "strict_task_accuracy": 0.0,
+    "answer_accuracy": 0.05375,
+    "format_valid_rate": 0.0,
+    "tool_execution_success_rate": 0.0,
+    "tool_evidence_coverage_rate": 0.0,
+    "protocol_progress": 0.7117343770340085,
+    "action_tokens_per_group": 3070.135,
+    "kl_k3": 0.03787722505140484
+  },
+  "last_200_groups": {
+    "shaped_reward": 0.26213459014892576,
+    "strict_task_accuracy": 0.0,
+    "answer_accuracy": 0.435,
+    "format_valid_rate": 0.0,
+    "tool_execution_success_rate": 0.0,
+    "tool_evidence_coverage_rate": 0.0,
+    "protocol_progress": 1.4557812523841858,
+    "action_tokens_per_group": 3072.0,
+    "kl_k3": 0.0554654
+  },
+  "full_completed_run": {
+    "accepted_groups": 6712,
+    "mean_shaped_reward": -0.486758,
+    "strict_task_accuracy": 0.0,
+    "answer_accuracy": 0.294528,
+    "format_valid_rate": 0.00001862,
+    "tool_execution_success_rate": 0.00001862,
+    "tool_evidence_coverage_rate": 0.0,
+    "protocol_progress": 1.414948,
+    "action_tokens": 20617925,
+    "action_tokens_per_group": 3071.8005,
+    "groups_with_any_tool_call": 2,
+    "groups_with_any_format_valid": 1,
+    "groups_with_any_strict_success": 0,
+    "mean_kl_k3": 0.04589996,
+    "mean_rollout_logprob_mae": 0.0212125
+  },
+  "safety": {
+    "all_recorded_numeric_metrics_finite": true,
+    "max_consecutive_rejections": 1,
+    "rejected_candidate_groups": [190, 316, 730, 771, 838, 1006, 1021, 3036, 3307, 4041, 5118, 5718, 5768, 6405],
+    "max_rejected_group_kl_k3": 157931.453125,
+    "max_rejected_single_token_kl": 485165152.0,
+    "max_accepted_kl_k3": 9.609803279396147,
+    "max_rollout_logprob_mae": 0.034072570502758026
+  },
+  "validation": {
+    "num_trajectories": 128,
+    "strict_task_accuracy": 0.0,
+    "answer_accuracy": 0.421875,
+    "format_valid_rate": 0.0,
+    "tool_execution_success_rate": 0.0,
+    "tool_evidence_coverage_rate": 0.0,
+    "avg_response_tokens": 384.0
+  },
+  "official_test": {
+    "num_trajectories": 1319,
+    "strict_task_accuracy": 0.0,
+    "answer_accuracy": 0.3692191053828658,
+    "format_valid_rate": 0.0,
+    "tool_execution_success_rate": 0.0,
+    "tool_evidence_coverage_rate": 0.0,
+    "avg_response_tokens": 384.0,
+    "wall_time_seconds": 34449.87128663063
+  },
+  "artifacts": {
+    "remote_metrics_path": "/root/Mini-RL-stage2/out/metrics/qwen3_4b_pure_grpo_s42.jsonl",
+    "final_metrics_sha256": "4ca06064ee337463648b4d8a359eca46461f6d71d88301769b00e060f6da61b8",
+    "interruption_metrics_sha256": "89e0021407cbfc6ec26cb04bf91ca90f72b1f0c4ee4f8ac9039622d32f91c6d0",
+    "interruption_log_sha256": "c488307a6a0d2108e55563806e435af2b2131981404ec45b5f442759fd89b0c3",
+    "terminal_adapter_path": "/root/Mini-RL-stage2/out/stage2/qwen3_4b/pure_grpo_s42_adapter",
+    "terminal_adapter_sha256": "bd68f534ddd9b71055dd46ef04a00a3b36cf8982cc0801b2f51971b56e5b3e41",
+    "final_results_audit": "results/stage2_track1/final_results_audit.json",
+    "final_results_audit_status": "PASS"
+  },
+  "conclusion_boundary": "Under the tested Qwen3-4B-Base, fresh-LoRA, shaped-GRPO, G=8, single-seed protocol, Base-init GRPO without Agent-SFT initialization improved direct answer accuracy but did not acquire executable agent behavior within 53,808 trajectories. Agent-SFT is designated as the RL system's cold-start training stage. This does not establish that Base-init GRPO cannot learn the protocol under different action representations, exploration methods, rewards, KL schedules, models, or budgets."
+}

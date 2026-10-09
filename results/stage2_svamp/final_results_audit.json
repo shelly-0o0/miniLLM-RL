@@ -1,0 +1,106 @@
+{
+  "status": "PASS",
+  "data": {
+    "train_rl": {
+      "path": "data/processed/svamp_agent/train_rl.jsonl",
+      "rows": 816,
+      "sha256": "be3b3faeb122f27b285acf1ed05e59d0eb0eb601f0452c17136ab90e0252dc7c"
+    },
+    "holdout_rl": {
+      "path": "data/processed/svamp_agent/holdout_rl.jsonl",
+      "rows": 184,
+      "sha256": "d83fdc54a99fa6a1e7779372ee9d22cd8fec28b1b3689272d146e0204d3bbb47"
+    },
+    "probe_rl": {
+      "path": "data/processed/svamp_agent/probe_rl.jsonl",
+      "rows": 128,
+      "sha256": "2a90fcee9e8f11a7e3e731b22ecb83a0ab687855cdcd5fb770d0d4a9e3f401a9"
+    }
+  },
+  "initial_adapter": {
+    "path": "out/stage2_track2/qwen3_4b/additional_sft_b_s42_adapter",
+    "adapter_model_sha256": "1af0712c474b417cc1b06f72d0c38e87a56ae32f036bf6894ed37858e5ab1251",
+    "tensor_count": 506,
+    "parameter_count": 35502080,
+    "non_finite_tensors": []
+  },
+  "result_required": true,
+  "grpo": {
+    "dataset_rows": 816,
+    "data_sha256": "be3b3faeb122f27b285acf1ed05e59d0eb0eb601f0452c17136ab90e0252dc7c",
+    "group_size": 8,
+    "candidate_groups": 816,
+    "candidate_trajectories": 6528,
+    "optimizer_updates": 816,
+    "metric_records": 816,
+    "kl_rejections": 0,
+    "max_rollout_logprob_mae": 0.01027078740298748,
+    "max_kl_k3": 0.06879399898047052,
+    "adapter": {
+      "path": "out/stage2_svamp/qwen3_4b/grpo_s42_adapter",
+      "adapter_model_sha256": "aff51b9c059681a9d57c9838191ac4e5004796851bfe9926f22b7cfbe9e20f0e",
+      "tensor_count": 506,
+      "parameter_count": 35502080,
+      "non_finite_tensors": []
+    }
+  },
+  "holdout": {
+    "summary": "out/stage2_svamp/qwen3_4b/evaluation/test/summary.json",
+    "manifest": "out/stage2_svamp/qwen3_4b/evaluation/test/manifest.json",
+    "data_rows": 184,
+    "evaluated_prompts": 184,
+    "trajectories_per_arm": 184,
+    "results": [
+      {
+        "label": "additional_sft_b_zero_shot",
+        "split": "test",
+        "model_name": "Qwen/Qwen3-4B-Base",
+        "model_revision": "main",
+        "adapter_path": "out/stage2_track2/qwen3_4b/additional_sft_b_s42_adapter",
+        "adapter_model_sha256": "1af0712c474b417cc1b06f72d0c38e87a56ae32f036bf6894ed37858e5ab1251",
+        "data_path": "data/processed/svamp_agent/holdout_rl.jsonl",
+        "data_sha256": "d83fdc54a99fa6a1e7779372ee9d22cd8fec28b1b3689272d146e0204d3bbb47",
+        "decode_seeds": [
+          42
+        ],
+        "num_trajectories": 184,
+        "reward": 0.358695652173913,
+        "task_accuracy": 0.6793478260869565,
+        "answer_accuracy": 0.717391304347826,
+        "format_valid_rate": 0.9891304347826086,
+        "tool_call_valid_rate": 0.9945652173913043,
+        "tool_execution_success_rate": 0.9945652173913043,
+        "required_tool_coverage_rate": 0.9945652173913043,
+        "tool_evidence_coverage_rate": 0.7010869565217391,
+        "unfinished_rate": 0.0,
+        "avg_response_tokens": 39.91304347826087,
+        "wall_time_seconds": 581.4185633659363
+      },
+      {
+        "label": "svamp_grpo",
+        "split": "test",
+        "model_name": "Qwen/Qwen3-4B-Base",
+        "model_revision": "main",
+        "adapter_path": "out/stage2_svamp/qwen3_4b/grpo_s42_adapter",
+        "adapter_model_sha256": "aff51b9c059681a9d57c9838191ac4e5004796851bfe9926f22b7cfbe9e20f0e",
+        "data_path": "data/processed/svamp_agent/holdout_rl.jsonl",
+        "data_sha256": "d83fdc54a99fa6a1e7779372ee9d22cd8fec28b1b3689272d146e0204d3bbb47",
+        "decode_seeds": [
+          42
+        ],
+        "num_trajectories": 184,
+        "reward": 0.5217391304347826,
+        "task_accuracy": 0.7608695652173914,
+        "answer_accuracy": 0.7989130434782609,
+        "format_valid_rate": 0.9945652173913043,
+        "tool_call_valid_rate": 0.9945652173913043,
+        "tool_execution_success_rate": 0.9945652173913043,
+        "required_tool_coverage_rate": 0.9945652173913043,
+        "tool_evidence_coverage_rate": 0.7663043478260869,
+        "unfinished_rate": 0.0,
+        "avg_response_tokens": 38.69021739130435,
+        "wall_time_seconds": 567.3480882644653
+      }
+    ]
+  }
+}

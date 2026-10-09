@@ -20,7 +20,7 @@ GSM8K 官方训练集先按题目 ID 确定性划为互斥 A/B 池，官方 1,31
 | 实验臂 | 初始化 | 后续数据与目标 | 回答的问题 |
 |---|---|---|---|
 | Base | Qwen3-4B-Base | 无 | 未后训练模型能否完成工具协议 |
-| Agent-SFT(A) | Base | A 池可靠 oracle，assistant-only SFT | Agent warm start 的作用 |
+| Agent-SFT(A) | Base | A 池可靠 oracle，assistant-only SFT | RL 系统冷启动训练的作用 |
 | GRPO(A) | Agent-SFT(A) | A 池在线 rollout，strict RLVR | 已见题上继续 RL 的作用 |
 | GRPO(B) | Agent-SFT(A) | 与 A 互斥的 B 池在线 rollout，strict RLVR | 新题上在线 RL 的作用 |
 | Additional-SFT(B) | Agent-SFT(A) | B 池可靠 oracle，assistant-only SFT | 同一 B 数据上继续 SFT 与 RL 的差异 |
@@ -140,6 +140,67 @@ Stage 2 Track 2 result audit: PASS
 - 只有一个训练 seed 和一个 decode seed。题目级置信区间不能替代跨训练 seed 方差；“显著”只表示这次训练下的逐题配对差异。
 - 没有做相同 wall-clock/FLOPs 的 SFT/RL 预算配平；Additional-SFT 使用 oracle，而 GRPO 使用在线稀疏奖励。
 - 结果适用于 Qwen3-4B-Base、当前 LoRA 配置、calculator 环境和 GSM8K，不等于普遍的 SFT/RL 排名。
-- Stack1 Pure GRPO 与 SFT→GRPO 的长程四臂实验没有作为本 Track 完成条件，不能用本报告声称 full-scale Pure-vs-warm-start 结论。
+- Stack1 Pure GRPO 与 SFT→GRPO 的长程四臂实验没有作为本 Track 完成条件，不能用本报告声称 full-scale Base-init-vs-Agent-SFT-init GRPO 结论。
 
 在这些边界内，Track 2 已完整回答预设问题：Agent-SFT 提供必要行为先验；strict Agentic GRPO 可以进一步改善，但信号稀疏；当可靠工具 oracle 可获得时，继续 SFT 是当前最有效的路线。
+
+## 10. 多维补充分析
+
+### 10.1 从最终分数拆解行为漏斗
+
+以下计数都来自同一 1,319 道 official test：
+
+| 模型 | Answer Acc | Tool Execution | Evidence Coverage | Strict Acc | Strict/Answer | Strict/Evidence |
+|---|---:|---:|---:|---:|---:|---:|
+| Base | 4.246% | 0.000% | 0.000% | 0.000% | 0.0% | — |
+| Agent-SFT(A) | 11.372% | 38.666% | 5.080% | 0.910% | 8.0% | 17.9% |
+| GRPO(A) | 14.936% | 42.835% | 7.809% | 2.578% | 17.3% | 33.0% |
+| GRPO(B) | 16.907% | 45.603% | 8.567% | 2.654% | 15.7% | 31.0% |
+| Additional-SFT(B) | 48.294% | 99.040% | 43.973% | 42.532% | 88.1% | 96.7% |
+
+Base 约 4.25% 的正确答案全部缺乏 Agent 行为，说明 answer-only accuracy 会高估部署价值。Agent-SFT 和 GRPO 已经获得 38%–46% 的工具执行率，但大部分执行没有转化为正确证据。Additional-SFT 则几乎消除了“有证据但 strict 失败”的损失，剩余上限主要由数学答案准确率决定。
+
+### 10.2 在线训练是否真的在学习
+
+| 指标 | GRPO(A) 前 200 | GRPO(A) 末 200 | GRPO(B) 前 200 | GRPO(B) 末 200 |
+|---|---:|---:|---:|---:|
+| Strict trajectory acc | 0.8125% | 2.6875% | 0.9375% | 2.2500% |
+| Answer accuracy | 11.00% | 17.94% | 14.44% | 15.94% |
+| Tool execution | 35.00% | 42.22% | 38.81% | 44.09% |
+| Evidence coverage | 5.13% | 9.19% | 5.75% | 8.25% |
+| Zero-variance groups | — | 82.0% | — | 84.5% |
+
+所以 GRPO 不是 loss 近零的完全空转：末段 strict、工具执行和证据覆盖都高于初段。但全程零方差组率仍为 A 84.75%、B 87.76%，绝大多数候选组没有提供相对排序梯度。这解释了为何改善存在，却远小于密集 oracle 监督。
+
+### 10.3 计算成本与监督密度
+
+| 分支 | Wall time | 相对同侧 SFT | 信号形式 | Official-test strict |
+|---|---:|---:|---|---:|
+| Agent-SFT(A) | 0.461 h | 1.0× | 每个 assistant token 有 oracle | 0.910% |
+| GRPO(A) | 15.208 h | 33.0× | 29,488 on-policy trajectories | 2.578% |
+| Additional-SFT(B) | 0.461 h | 1.0× | 每个 assistant token 有 oracle | 42.532% |
+| GRPO(B) | 15.885 h | 34.5× | 29,488 on-policy trajectories | 2.654% |
+
+这些是观测 wall time，不是严格 FLOPs 配平；序列长度、生成与 teacher forcing 的内核路径也不同。但在当前实现中，Additional-SFT 不仅更准确，也明显更便宜。GRPO 的计算先用于生成 G=8 轨迹，而 B 全程约 87.76% 的组又没有组内奖励方差，形成双重效率损失。
+
+### 10.4 效果量与成功集合
+
+- GRPO(A/B) 相对 0.910% 基线的相对提升为约 183.3%/191.7%，但绝对值仍只有 2.578%/2.654%。相对百分比不能代替绝对部署成功率。
+- GRPO(A) vs Agent-SFT 的 discordant pair 是 34:12，且共同成功为 0；GRPO(B) vs Agent-SFT 为 34:11，共同成功仅 1。RL 在改变哪些题会成功，而不是严格保留所有基线成功题。
+- GRPO(B) vs GRPO(A) 为 31:30，只有 4 道共同成功，说明两条单-seed policy 的成功集合差异很大，而总分几乎相同。
+- Additional-SFT(B) vs GRPO(B) 为 542:16，另有 19 道共同成功；优势不是少量边缘题造成的。
+
+### 10.5 统计强度与边界
+
+六项配对比较做保守 Bonferroni 校正时，阈值约为 `0.0083`。Agent-SFT vs Base、GRPO(A/B) vs Agent-SFT、Additional-SFT 相关主差异仍低于该阈值；GRPO(B) vs GRPO(A) 仍为 `p=1.0`。但这些 p 值和 bootstrap 区间只使用题目作为抽样单位，不能覆盖重新训练 adapter 的波动。
+
+因此 Track 2 的证据强度应分层表述：
+
+1. “这一次训练得到的五个 checkpoint 在同题 test 上有差异”——证据充分；
+2. “GRPO(A/B) 在新的 training seed 上仍会稳定提高约 1.7 pp”——尚未验证；
+3. “SFT 普遍优于 RL”——实验设计不支持；
+4. “在可靠 oracle 已存在、当前 QLoRA 和 strict reward 下，追加 SFT 是更优工程选择”——与本轮数据一致。
+
+### 10.6 数值稳定性与策略漂移
+
+GRPO(A/B) 全程平均 KL k3 约为 0.00442/0.00274，最大审计 KL 约为 0.0406/0.0411，均无安全拒绝和非有限 tensor。rollout logprob MAE 在训练前后没有恶化，说明性能受限主要不是优化爆炸，而是可用 reward signal 太少。单纯进一步收紧 KL 很可能降低探索，放宽 KL 也不会自动创造正确轨迹；优先级应放在更好的 Agent-SFT 冷启动训练、过程反馈或提高有效组比例。

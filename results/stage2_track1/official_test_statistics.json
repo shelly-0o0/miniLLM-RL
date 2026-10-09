@@ -1,0 +1,145 @@
+{
+  "status": "COMPLETE",
+  "scope": "Intervals treat the 1,319 official-test questions as the sampling unit. They do not quantify variation across training seeds; all Track 1 models use one training/decode seed (42).",
+  "data_sha256": "909ce396576b5cfe2c64889c0e2159632d532b77b8854740e951aa06e41b7ca9",
+  "labels": [
+    "base",
+    "sft_only",
+    "pure_grpo",
+    "sft_grpo"
+  ],
+  "num_paired_questions": 1319,
+  "bootstrap_samples": 20000,
+  "arms": [
+    {
+      "label": "base",
+      "num_trajectories": 1319,
+      "task_successes": 0,
+      "task_accuracy": 0.0,
+      "task_accuracy_wilson_95": [
+        0.0,
+        0.002903944985303654
+      ],
+      "answer_accuracy": 0.04245640636846096,
+      "format_valid_rate": 0.0,
+      "tool_call_valid_rate": 0.0,
+      "tool_execution_success_rate": 0.0,
+      "required_tool_coverage_rate": 0.0,
+      "tool_evidence_coverage_rate": 0.0,
+      "unfinished_rate": 0.0,
+      "avg_response_tokens": 384.0
+    },
+    {
+      "label": "sft_only",
+      "num_trajectories": 1319,
+      "task_successes": 496,
+      "task_accuracy": 0.37604245640636846,
+      "task_accuracy_wilson_95": [
+        0.35029695668525257,
+        0.40250788790170283
+      ],
+      "answer_accuracy": 0.46474601971190294,
+      "format_valid_rate": 0.979529946929492,
+      "tool_call_valid_rate": 0.9962092494313874,
+      "tool_execution_success_rate": 0.9950720242608037,
+      "required_tool_coverage_rate": 0.9954510993176648,
+      "tool_evidence_coverage_rate": 0.3889310083396513,
+      "unfinished_rate": 0.0,
+      "avg_response_tokens": 70.46322971948446
+    },
+    {
+      "label": "pure_grpo",
+      "num_trajectories": 1319,
+      "task_successes": 0,
+      "task_accuracy": 0.0,
+      "task_accuracy_wilson_95": [
+        0.0,
+        0.002903944985303654
+      ],
+      "answer_accuracy": 0.3692191053828658,
+      "format_valid_rate": 0.0,
+      "tool_call_valid_rate": 0.0,
+      "tool_execution_success_rate": 0.0,
+      "required_tool_coverage_rate": 0.0,
+      "tool_evidence_coverage_rate": 0.0,
+      "unfinished_rate": 0.0,
+      "avg_response_tokens": 384.0
+    },
+    {
+      "label": "sft_grpo",
+      "num_trajectories": 1319,
+      "task_successes": 890,
+      "task_accuracy": 0.6747536012130402,
+      "task_accuracy_wilson_95": [
+        0.6489961616058822,
+        0.6994960911323854
+      ],
+      "answer_accuracy": 0.6959818043972706,
+      "format_valid_rate": 0.9886277482941622,
+      "tool_call_valid_rate": 0.9962092494313874,
+      "tool_execution_success_rate": 0.9962092494313874,
+      "required_tool_coverage_rate": 0.9962092494313874,
+      "tool_evidence_coverage_rate": 0.6793025018953753,
+      "unfinished_rate": 0.000758150113722517,
+      "avg_response_tokens": 88.56482183472328
+    }
+  ],
+  "pairwise": [
+    {
+      "treatment": "sft_only",
+      "control": "base",
+      "task_accuracy_delta": 0.37604245640636846,
+      "paired_bootstrap_delta_95": [
+        0.34950720242608035,
+        0.40181956027293403
+      ],
+      "treatment_only_success": 496,
+      "control_only_success": 0,
+      "both_success": 0,
+      "both_failure": 823,
+      "mcnemar_exact_two_sided_p": 9.775796363198587e-150
+    },
+    {
+      "treatment": "pure_grpo",
+      "control": "base",
+      "task_accuracy_delta": 0.0,
+      "paired_bootstrap_delta_95": [
+        0.0,
+        0.0
+      ],
+      "treatment_only_success": 0,
+      "control_only_success": 0,
+      "both_success": 0,
+      "both_failure": 1319,
+      "mcnemar_exact_two_sided_p": 1.0
+    },
+    {
+      "treatment": "sft_grpo",
+      "control": "sft_only",
+      "task_accuracy_delta": 0.2987111448066717,
+      "paired_bootstrap_delta_95": [
+        0.2699014404852161,
+        0.32752084912812734
+      ],
+      "treatment_only_success": 444,
+      "control_only_success": 50,
+      "both_success": 446,
+      "both_failure": 379,
+      "mcnemar_exact_two_sided_p": 5.3983429981013084e-80
+    },
+    {
+      "treatment": "sft_grpo",
+      "control": "pure_grpo",
+      "task_accuracy_delta": 0.6747536012130402,
+      "paired_bootstrap_delta_95": [
+        0.6489764973464746,
+        0.6997725549658832
+      ],
+      "treatment_only_success": 890,
+      "control_only_success": 0,
+      "both_success": 0,
+      "both_failure": 429,
+      "mcnemar_exact_two_sided_p": 2.4228908772696665e-268
+    }
+  ]
+}

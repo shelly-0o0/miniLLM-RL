@@ -1,0 +1,64 @@
+{
+  "dataset": "arkilpatel/SVAMP",
+  "source_revision": "78e727689e1c1bebfc4be39c446898e8e10b0518",
+  "protocol": "svamp_only_author_cv_folds_0_3_train_fold4_holdout",
+  "official_split_warning": "SVAMP is officially a 1,000-item challenge set. This experiment derives a train/holdout protocol from the authors' augmented CV folds.",
+  "policy": "SVAMP rows in author folds 0-3 form train; fold 4 is frozen holdout; group_nums variation families are disjoint; holdout is verifier-only",
+  "source": {
+    "fold0_dev": {
+      "path": "data/raw/svamp/fold0_dev.csv",
+      "sha256": "37a0f26da9d1cc10619f586bc086bb113e894686459dbc1203a798464ff37a7d"
+    },
+    "fold1_dev": {
+      "path": "data/raw/svamp/fold1_dev.csv",
+      "sha256": "0fd6b2eddf657a451bdd578b338b341ab5ab3473661b7be545a8f4760668a6b2"
+    },
+    "fold2_dev": {
+      "path": "data/raw/svamp/fold2_dev.csv",
+      "sha256": "ea93418576a94ff79f0818d562a8a07866d844b981b3f2769fa62c648e13b12b"
+    },
+    "fold3_dev": {
+      "path": "data/raw/svamp/fold3_dev.csv",
+      "sha256": "3618faa3f85db367a2dbbff7c53689d1119e8414bc80b682c15ef101f6d5b722"
+    },
+    "fold4_dev": {
+      "path": "data/raw/svamp/fold4_dev.csv",
+      "sha256": "850d7f225870959fbaaed227dc4ef46cda6a0ac1d5cc41e9f1a6257fa7ffe6b7"
+    }
+  },
+  "files": {
+    "train_rl": {
+      "path": "data/processed/svamp_agent/train_rl.jsonl",
+      "rows": 816,
+      "sha256": "be3b3faeb122f27b285acf1ed05e59d0eb0eb601f0452c17136ab90e0252dc7c",
+      "type_counts": {
+        "Subtraction": 442,
+        "Addition": 161,
+        "Multiplication": 85,
+        "Common-Division": 128
+      }
+    },
+    "holdout_rl": {
+      "path": "data/processed/svamp_agent/holdout_rl.jsonl",
+      "rows": 184,
+      "sha256": "d83fdc54a99fa6a1e7779372ee9d22cd8fec28b1b3689272d146e0204d3bbb47",
+      "type_counts": {
+        "Subtraction": 91,
+        "Addition": 32,
+        "Multiplication": 22,
+        "Common-Division": 39
+      }
+    },
+    "probe_rl": {
+      "path": "data/processed/svamp_agent/probe_rl.jsonl",
+      "rows": 128,
+      "sha256": "2a90fcee9e8f11a7e3e731b22ecb83a0ab687855cdcd5fb770d0d4a9e3f401a9",
+      "type_counts": {
+        "Subtraction": 88,
+        "Addition": 32,
+        "Multiplication": 5,
+        "Common-Division": 3
+      }
+    }
+  }
+}

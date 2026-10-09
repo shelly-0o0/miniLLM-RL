@@ -32,6 +32,36 @@
 
 完整解释、图表和结论边界见 [`docs/PROJECT_SUMMARY_REPORT.md`](../docs/PROJECT_SUMMARY_REPORT.md)。数据切分哈希见 `dataset/manifests/`。
 
+## Stage 2 Track 1
+
+`stage2_track1/` 保存 Qwen3-4B Base、Pure GRPO、SFT-only、SFT→GRPO 四臂正式结果：
+
+| 文件 | 内容 |
+|---|---|
+| `TRACK1_OFFICIAL_TEST_REPORT.md` | 1,319 题四臂 official-test 简报 |
+| `official_test_metrics.csv` | 四臂指标与 Wilson 95% 区间 |
+| `official_test_statistics.json` | paired bootstrap 与 exact McNemar 统计 |
+| `final_results_audit.json` | 数据、训练预算、adapter、validation/test 覆盖和终态审计 |
+| `training_dynamics.json` | Pure/SFT→GRPO 训练窗口、累计 token 与拒绝计数 |
+| `pure_grpo_termination_summary.json` | Pure 的历史中断、恢复和最终完成元数据 |
+
+Track 1 终态审计为 `PASS`；official-test strict 为 Base 0%、Pure 0%、SFT-only 37.604%、SFT→GRPO 67.475%。Pure answer 达 36.922% 但工具执行为 0；Agent-SFT 冷启动训练之后的 GRPO 相对 SFT-only 增加 29.871 pp。
+
+完整实验设计和分析见 [`docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md`](../docs/STAGE2_TRACK1_EXPERIMENT_REPORT.md)；Pure 的中断与恢复证据见 [`docs/STAGE2_TRACK1_TERMINATION_REPORT.md`](../docs/STAGE2_TRACK1_TERMINATION_REPORT.md)。
+
+## Stage 2 SVAMP
+
+`stage2_svamp/` 保存从 GSM8K Additional-SFT(B) adapter 初始化、在 SVAMP 上继续 GRPO 的跨数据集实验：
+
+| 文件 | 内容 |
+|---|---|
+| `SVAMP_OFFICIAL_TEST_REPORT.md` | 184 题 holdout 指标、配对统计和解释边界 |
+| `official_test_metrics.csv` | 两臂 holdout 指标与 Wilson 95% 区间 |
+| `official_test_statistics.json` | 20,000 次 paired bootstrap 与 exact McNemar 统计 |
+| `final_results_audit.json` | 数据、训练预算、adapter、holdout 覆盖和 manifest 审计 |
+
+SVAMP SFT-init GRPO 完成 816 groups / 6,528 trajectories，审计 `PASS`；holdout strict 从 67.935% 提升到 76.087%，绝对增量 8.152 pp。
+
 ## 完整性
 
 仓库根目录执行以下命令可以核对本目录内容：
